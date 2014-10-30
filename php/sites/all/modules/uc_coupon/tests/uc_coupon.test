@@ -1,0 +1,144 @@
+<?php
+
+/**
+ * @file
+ * Ubercart Discount Coupon Tests.
+ */
+
+/**
+ * SimpleTests for Ubercart Discount Coupons
+ */
+class UcCouponTestCase extends UbercartTestHelper {
+
+  public static function getInfo() {
+    return array(
+      'name' => 'Discount Coupons',
+      'description' => 'Test discount coupons.',
+      'group' => 'Ubercart',
+    );
+  }
+
+  /**
+   * Overrides DrupalWebTestCase::setUp().
+   */
+  function setUp() {
+    $modules = array('uc_coupon', 'uc_payment', 'uc_payment_pack');
+    $permissions = array('manage store coupons');
+    parent::setUp($modules, $permissions);
+    $this->drupalLogin($this->adminUser);
+  }
+
+  function createCoupon($edit = array()) {
+    $edit += array(
+      'code' => $this->randomName(8),
+      'name' => $this->randomName(20),
+      'discount' => mt_rand(1, 50) . '%',
+      'status' => 1,
+    );
+    $form_state = array('values' => $edit);
+    drupal_form_submit('uc_coupon_add_form', $form_state);
+    $cid = db_query('SELECT cid FROM {uc_coupons} WHERE code = :code', array(':code' => trim(strtoupper($edit['code']))))->fetchField();
+    $this->assertTrue($cid, 'Coupon was created successfully');
+    if (!$cid) debug(form_get_errors(), 'Form errors:');
+    $coupon = uc_coupon_load($cid);
+    return $coupon;
+  }
+  
+  public function applyCoupons($coupons, $products = array(), $total = NULL) {
+    foreach ($products as $product) {
+      $this->drupalPost('node/' . $product->nid, array(), t('Add to cart'));
+      $this->assertRaw($product->title, 'Product appears on cart page');
+    }
+    foreach ($coupons as $coupon) {
+      $this->drupalPost('cart', array('code' => $coupon->code), t('Apply to order'));
+      if ($total !== FALSE) {
+        $this->assertRaw('Coupon ' . $coupon->code, 'Applied coupon code appears on cart page.');
+      }
+      else {
+        $this->assertNoRaw('Coupon ' . $coupon->code, 'Invalid coupon code does not appear on cart page.');
+      }
+    }
+    if ($total === FALSE) {
+      $this->assertNoRaw(uc_currency_format($total), 'Invalid discount was not applied to total.');
+    }
+    elseif (!is_null($total)) {
+      $this->assertRaw(uc_currency_format($total), 'Discounted total is correct on cart page.');
+    }
+  }
+  
+  // Our own version of the checkout sequence, optionally checking for coupons.
+  function checkout($coupons = array(), $total = FALSE) {
+    $total = uc_currency_format($total);
+    $this->drupalPost('cart', array('items[0][qty]' => 1), t('Checkout'));
+    foreach ($coupons as $coupon) {
+      $this->assertRaw('Coupon ' . $coupon->code, "Coupon $coupon->code appears on checkout page.");
+    }
+    if ($total !== FALSE) {
+      $this->assertRaw($total, "The order total of $total is correct on the checkout page");
+    }
+    $edit = $this->populateCheckoutForm();
+    $this->drupalPost(NULL, $edit, t('Review order'));
+    foreach ($coupons as $coupon) {
+      $this->assertRaw('Coupon ' . $coupon->code, "Coupon $coupon->code appears on review page.");
+    }
+    if ($total !== FALSE) {
+      $this->assertRaw($total, "The order total of $total is correct on the review page");
+    }
+        // Complete the review page.
+    $this->drupalPost(NULL, array(), t('Submit order'));
+
+    $order_id = db_query("SELECT order_id FROM {uc_orders} WHERE delivery_first_name = :name", array(':name' => $edit['panes[delivery][delivery_first_name]']))->fetchField();
+    if ($order_id) {
+      $order = uc_order_load($order_id);
+      if ($total !== FALSE) {
+        $this->assertEqual(uc_currency_format(uc_order_get_total($order)), $total, 'Saved order total is correct');
+      }
+    }
+    else {
+      $this->fail(t('No order was created.'));
+      $order = FALSE;
+    }
+
+    return $order;
+  }
+
+  
+  public function testGiftCertificate() {
+    $coupon = $this->createCoupon(array(
+      'discount' => '100',
+      'store_credit' => 1,
+    ));
+    $product = $this->createProduct(array(
+      'sell_price' => '75',
+    ));
+    $this->applyCoupons(array($coupon), array($product), 0);
+    $this->assertText('Subtotal: $0.00');
+    $order = $this->checkout();
+    uc_order_update_status($order->order_id, 'payment_received');
+    $this->applyCoupons(array($coupon), array($product), 50);
+  }
+
+
+  public function testCoupon() {
+    $coupon = $this->createCoupon( array(
+      'discount' => '100'
+    ));
+    $product = $this->createProduct(array(
+      'sell_price' => '150'
+    ));
+    $total = $product->sell_price - $coupon->value;
+
+    $this->applyCoupons(array($coupon), array($product), $total);
+    $order = $this->checkout(array($coupon), $total);
+
+    // Try again to make sure the default usage limit works.
+    uc_order_update_status($order->order_id, 'payment_received');
+    $this->applyCoupons(array($coupon), array($product), FALSE);
+
+    // Clear the usage limit and try again.
+    $coupon->max_uses = 0;
+    uc_coupon_save($coupon);
+    $this->applyCoupons(array($coupon), array(), $total);
+  }
+  
+}

@@ -1,0 +1,84 @@
+/*
+	Mosaic - Sliding Boxes and Captions jQuery Plugin
+	Version 1.0
+	www.buildinternet.com/project/mosaic
+	
+	By Sam Dunn / One Mighty Roar (www.onemightyroar.com)
+	Released under MIT License / GPL License
+*/
+
+/**
+ * General Mosaic Styles
+ */
+
+.mosaic-block {
+  position:relative;
+}
+
+.mosaic-block {
+  background:#111 url(theme/img/progress.gif) no-repeat center center;
+  margin:10px;
+  overflow: hidden;
+  position:relative;
+}
+
+.mosaic-backdrop {
+  background:#111;
+  display:none;
+  height:100%;
+  position:absolute;
+  top:0;
+  width:100%;
+}
+
+.mosaic-overlay {
+  background:#111;
+  display:none;
+  height:100%;
+  position:absolute;
+  width:100%;
+  z-index:5;
+}
+
+/*** Custom Animation Styles (You can remove/add any styles below) ***/
+.circle .mosaic-overlay {
+  background:url(theme/img/hover-magnify.png) no-repeat center center;
+  display:none;
+  opacity:0;
+  -ms-filter: "progid:DXImageTransform.Microsoft.Alpha(Opacity=00)";
+  filter:alpha(opacity=00);
+}
+
+.fade .mosaic-overlay {
+  background:url(theme/img/bg-black.png);
+  opacity:0;
+  -ms-filter: "progid:DXImageTransform.Microsoft.Alpha(Opacity=00)";
+  filter:alpha(opacity=00);
+}
+
+.bar .mosaic-overlay {
+  background:url(theme/img/bg-black.png);
+  bottom:-30%;
+  height:30%;
+}
+
+.bar2 .mosaic-overlay {
+  /*bottom:-20%; */
+  height:100%;
+  opacity:0.1;
+  -ms-filter: "progid:DXImageTransform.Microsoft.Alpha(Opacity=10)";
+  filter:alpha(opacity=10);
+}
+
+.bar2 .mosaic-overlay:hover {
+  opacity:1;
+  -ms-filter: "progid:DXImageTransform.Microsoft.Alpha(Opacity=100)";
+  filter:alpha(opacity=100);
+}
+
+.bar3 .mosaic-overlay {
+  background:url(theme/img/bg-black.png);
+  height:100px;
+  top:-100px;
+  
+}

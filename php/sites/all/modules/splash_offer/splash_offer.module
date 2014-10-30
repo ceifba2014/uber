@@ -1,0 +1,267 @@
+<?php
+/**
+ * @file
+ * Base module file for splash_offer
+ *
+ * @defgroup splash_offer Splash Offer
+ * @{
+ */
+
+/**
+ * @var SPLASH_OFFER_BUTTON_MODE_UI
+ */
+define('SPLASH_OFFER_BUTTON_MODE_UI', 1);
+/**
+ * @var SPLASH_OFFER_BUTTON_MODE_HTML
+ */
+define('SPLASH_OFFER_BUTTON_MODE_HTML', 2);
+/**
+ * @var SPLASH_OFFER_STATUS_ACTIVE
+ */
+define('SPLASH_OFFER_STATUS_ACTIVE', 1);
+/**
+ * @var SPLASH_OFFER_STATUS_INACTIVE
+ */
+define('SPLASH_OFFER_STATUS_INACTIVE', 0);
+
+/**
+ * Implements hook_permission().
+ */
+function splash_offer_permission() {
+  return array(
+    'splash_offer:administer' => array(
+      'title' => t('Administer Splash Offer'),
+      'description' => t('Perform administration tasks for Splash Offer.'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_entity_info().
+ */
+function splash_offer_entity_info() {
+  $return = array(
+    'splash_offer' => array(
+      'label' => t('Splash Offer'),
+      'plural label' => t('Splash Offers'),
+      'description' => t('Splash offer entities'),
+      'controller class' => 'SplashOfferEntityController',
+      'entity class' => 'SplashOfferEntity',
+      'base table' => 'splash_offer',
+      'entity keys' => array(
+        'id' => 'oid',
+        //'name' => 'machine_name',
+        //'bundle' => 'machine_name',
+      ),
+      'label callback' => 'entity_class_label',
+      'fieldable' => FALSE,
+
+      // Admin UI
+      'access callback' => 'splash_offer_access',
+      'module' => 'splash_offer',
+      'admin ui' => array(
+        'controller class' => 'SplashOfferUIController',
+        'path' => 'admin/structure/splash-offer',
+        //'menu wildcard' => '%splash_offer',
+        'file' => 'includes/splash_offer.admin.inc',
+      ),
+    ),
+  );
+
+  // Add bundle info but bypass entity_load() as we cannot use it here.
+  $types = db_select('splash_offer', 'a')
+    ->fields('a')
+    ->execute()
+    ->fetchAllAssoc('name');
+
+  foreach ($types as $name => $type) {
+    $return['splash_offer']['bundles'][$name] = array(
+      'label' => $type->name,
+    );
+  }
+
+  // Support entity cache module.
+  if (module_exists('entitycache')) {
+    $return['splash_offer']['field cache'] = FALSE;
+    $return['splash_offer']['entity cache'] = TRUE;
+  }
+
+  return $return;
+}
+
+/**
+ * Implements hook_preprocess_html().
+ */
+function splash_offer_preprocess_html(&$vars) {
+  if (!($offers = entity_load('splash_offer'))) {
+    return;
+  }
+  module_load_include('inc', 'splash_offer', 'includes/splash_offer.pages');
+
+  uasort($offers, 'splash_offer_sort');
+  
+  // Show them only if they haven't seen it and they have permission
+  $show = FALSE;
+  foreach ($offers as $entity) {
+    if ($entity->status == SPLASH_OFFER_STATUS_ACTIVE
+        && _splash_offer_role_access($entity)
+        && _splash_offer_page_visibility($entity)
+        && _splash_offer_device_visibility($entity)
+        && !_splash_offer_has_seen($entity)) {
+      // Append the markup for displaying the splash, on the first one found
+      $vars['page']['page_bottom']['splash_offer'] = $entity->view();
+      break;
+    }
+  }
+}
+
+/**
+ * Implements hook_theme().
+ */
+function splash_offer_theme($existing, $type, $theme, $path) {
+  return array(
+    'splash_offer' => array(
+      'render element' => 'elements',
+      'template' => 'splash_offer',
+    ),
+  );
+}
+
+/**
+ * Implements hook_preprocess_splash_offer_splash().
+ */
+function splash_offer_preprocess_entity(&$vars) {
+  if ($vars['entity_type'] !== 'splash_offer') {
+    return;
+  }
+
+  $splash = $vars['elements']['#entity'];
+
+  // Add in the necessary JS to make this happen
+  drupal_add_library('system', 'ui.dialog');
+  drupal_add_js(drupal_get_path('module', 'splash_offer') . '/splash_offer.js');
+  drupal_add_css(drupal_get_path('module', 'splash_offer') . '/splash_offer.css');
+
+  $splash = $vars['elements']['#entity'];
+
+  $vars['classes_array'][] = 'splash-offer-' . $splash->machine_name;
+
+  $vars['button_mode']              = $splash->links['#mode'];
+  $vars['content']['body']          = array('#markup' => filter_xss_admin($splash->markup));
+  $vars['buttons']                  = $splash->links;
+  $vars['yes']                      = NULL;
+  $vars['no']                       = NULL;
+  $vars['cookies']                  = $splash->storage['cookies']['#enabled'];
+  $vars['cookie_default']           = $splash->storage['cookies']['#default'];
+
+  //$vars['width'] = 600;
+  //$vars['height'] = 860;
+
+  $js_settings = array(
+    'id' => $splash->machine_name,
+  );
+  if ($vars['cookies']) {
+    $js_settings['cookie']['expiry'] = 1000 * 60 * 60 * 24 * $splash->storage['cookies']['#lifetime'];
+  }
+
+  if ($vars['button_mode'] == SPLASH_OFFER_BUTTON_MODE_UI) {
+    // Use the jquery ui buttons
+    $js_settings['yes'] = $vars['buttons']['yes'];
+    $js_settings['no']  = $vars['buttons']['no'];
+  }
+  elseif ($vars['button_mode'] == SPLASH_OFFER_BUTTON_MODE_HTML) {
+
+    // YES: Button
+    $options = drupal_array_merge_deep(array(
+        'attributes' => array(
+          'class' => array(
+            'splash-offer-yes'
+          ),
+          'target' => '_blank',
+        ),
+      ), $vars['buttons']['yes']['options']);
+    $vars['buttons']['yes'] = array(
+      'text' => $vars['buttons']['yes']['text'],
+      'path' => $vars['buttons']['yes']['path'],
+      'options' => $options,
+    );
+    $vars['yes'] = l($vars['buttons']['yes']['text'], $vars['buttons']['yes']['path'], $options);
+
+    // NO: Button
+    $options = drupal_array_merge_deep(array(
+      'attributes' => array(
+        'class' => array(
+          'splash-offer-no'
+        ),
+      ),
+    ), $vars['buttons']['no']['options']);
+    $vars['buttons']['no'] = array(
+      'text' => $vars['buttons']['no']['text'],
+      'path' => $_GET['q'],
+      'options' => $options,
+    );
+    $vars['no'] = l($vars['buttons']['no']['text'], $vars['buttons']['no']['path'], $options);
+  }
+  foreach (element_children($vars['buttons']) as $key) {
+    $vars['content']['buttons'][$key]['#theme'] = 'link';
+    foreach ($vars['buttons'][$key] as $k => $v) {
+      $vars['content']['buttons'][$key]["#$k"] = $v;
+    }
+    $vars['content']['buttons'][$key]['#options'] += array(
+      'html' => FALSE,
+    );
+  }
+
+  drupal_add_js(array('splashOffer' => $js_settings), 'setting');
+}
+
+
+/**
+ * Return the default roles for an entity
+ */
+function _splash_offer_default_roles() {
+  return array_intersect_key(user_roles(), array_flip(array(DRUPAL_ANONYMOUS_RID, DRUPAL_AUTHENTICATED_RID)));
+}
+
+/**
+ * Access callback for splash_offer entities
+ *
+ * @param $op
+ *   The operation being performed. One of 'view', 'update', 'create' or
+ *   'delete'.
+ * @param $entity
+ *   Optionally an entity to check access for. If no entity is given, it will be
+ *   determined whether access is allowed for all entities of the given type.
+ * @param $account
+ *   The user to check for. Leave it to NULL to check for the global user.
+ * @param $entity_type
+ *   The entity type of the entity to check for.
+ *
+ * @return boolean
+ *   Whether access is allowed or not. If the entity type does not specify any
+ *   access information, NULL is returned.
+ *
+ * @see entity_type_supports()
+ */
+function splash_offer_access($op, $entity, $account, $entity_type) {
+  if ($entity_type !== 'splash_offer') {
+    return NULL;
+  }
+  switch ($op) {
+    case 'view':
+      if (!empty($entity->access['roles'])) {
+        $entity_roles = $entity->access['roles'];
+      }
+      else {
+        $entity_roles = _splash_offer_default_roles();
+      }
+      if (empty($account)) {
+        $account = $GLOBALS['user'];
+      }
+      return (bool) array_intersect_key($account->roles, $entity_roles);
+    case 'update':
+    case 'create':
+    case 'delete':
+      return user_access('splash_offer:administer', $account);
+  }
+}

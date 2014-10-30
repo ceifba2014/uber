@@ -1,0 +1,62 @@
+<?php
+/**
+ * @file
+ * Primary module file to manipulate views mosaic
+ */
+
+define('VIEWS_MOSAIC_FILE_NAME_JS', 'views_mosaic.js');
+define('VIEWS_MOSAIC_FILE_NAME_CSS', 'views_mosaic.theme.css');
+define('VIEWS_MOSAIC_PLUGIN_FILE_NAME_JS', 'mosaic.1.0.1.min.js');
+define('VIEWS_MOSAIC_PLUGIN_PATH_JS', '/js/' . VIEWS_MOSAIC_PLUGIN_FILE_NAME_JS);
+
+
+/**
+ * Implements hook_views_api().
+ */
+function views_mosaic_views_api() {
+  return array(
+    'api' => '3.0',
+  );
+}
+
+/**
+ * Implements hook_views_plugins().
+ */
+function views_mosaic_views_plugins() {
+  return array(
+    'row' => array(
+      'views_mosaic' => array(
+        'title' => t('Mosaic jquery'),
+        'help' => t('Display as mosaic jquery plugin'),
+        'handler' => 'viewsPluginRowViewsMosaic',
+        'theme path' => drupal_get_path('module', 'views_mosaic') . '/theme',
+        'theme file' => 'views_mosaic.theme.inc',
+        'theme' => 'views_view_row_mosaic',
+        'uses fields' => TRUE,
+        'uses options' => TRUE,
+        'type' => 'normal',
+      )
+    )
+  );
+}
+
+/**
+ * Implement hook_library().
+ *
+ * @return array
+ *   An array defining libraries associated with a module.
+ */
+function views_mosaic_library() {
+  $libraries = array();
+
+  $libraries['mosaic'] = array(
+    'title' => 'Mosaic jQuery Plugin',
+    'website' => 'https://github.com/buildinternet/mosaic/',
+    'version' => '1.0.1',
+    'js' => array(
+      libraries_get_path('mosaic') . VIEWS_MOSAIC_PLUGIN_PATH_JS => array(),
+    ),
+  );
+
+  return $libraries;
+}

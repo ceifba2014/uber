@@ -1,0 +1,30 @@
+Facebook Autopost 7.x-1.x-beta1, 16-01-2013
+-------------------------------------------
+- Added support for remote deletion and edition.
+
+Facebook Autopost Entity 7.x-1.x-beta1, 16-01-2013
+--------------------------------------------------
+- Added support for remote deletion and edition.
+- Added Facebook Publication detail page.
+- Added Rules support for deleting and editing a remote publication.
+
+Facebook Autopost Types 7.x-1.x-beta1, 16-01-2013
+-------------------------------------------------
+- Updated feature containing a new Event type.
+
+Facebook Autopost 7.x-1.x-beta1, 21-01-2013
+-------------------------------------------
+- Added VERY basig admin interface for session handling.
+
+Facebook Autopost 7.x-1.x-beta1, 25-01-2013
+-------------------------------------------
+- Added support for the privacy setting when publishing on the user's timeline.
+
+Facebook Autopost 7.x-1.x-beta1, 27-01-2013
+-------------------------------------------
+- Added factory methods to support per type overrides.
+- Support for Photo type
+
+Facebook Autopost Entity 7.x-1.x-beta1, 02-02-2013
+--------------------------------------------------
+- Added a default view to list all publications

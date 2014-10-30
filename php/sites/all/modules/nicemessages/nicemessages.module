@@ -1,0 +1,196 @@
+<?php
+/**
+
+ * @file
+ * Nicemessages module
+ *
+ * Displays drupal messages with jGrowl jQuery plugin.
+ */
+
+define('NICEMESSAGES_FIELDNAME', 'field_user_nicemessages_enabled');
+
+/**
+ *  Implements hook_init().
+ */
+function nicemessages_init() {
+  // Attach jGrowl files
+  drupal_add_css(drupal_get_path('module', 'nicemessages') .'/libraries/jgrowl/jquery.jgrowl.css');
+  drupal_add_js(drupal_get_path('module', 'nicemessages') .'/libraries/jgrowl/jquery.jgrowl.js');
+  // Atach module files
+  drupal_add_css(drupal_get_path('module', 'nicemessages') . '/css/nicemessages.css'); 
+  drupal_add_js(drupal_get_path('module', 'nicemessages') . '/js/nicemessages.js');
+}
+
+/**
+ *  Implements hook_menu().
+ */
+function nicemessages_menu() {
+  // Module configuration form
+  $items['admin/config/system/nicemessages'] = array(
+    'title' => 'Nice messages',
+    'description' => 'Nice messages configuration',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nicemessages_settings_form'),
+    'access arguments' => array('administer nicemessages'),
+  );
+  return $items;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function nicemessages_permission() {
+  return array(
+    'administer nicemessages' => array(
+      'title' => t('Administer nicemessages'),
+      'description' => t('Adjust nicemessages settings.'),
+    ),
+    'toggle nicemessages' => array(
+      'title' => t('Toggle nicemessages'),
+      'description' => t('Users with this permission can choose to turn nicemessages on or off for their account.'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_access().
+ */
+function nicemessages_field_access($op, $field, $entity_type, $entity, $account) {
+  if ($field['field_name'] == NICEMESSAGES_FIELDNAME) {
+    // Users with toggle nicemessages permission can edit their settings.
+    if ($op == 'edit') {
+      return user_access('toggle nicemessages', $account);
+    }
+    else if ($op == 'view') {
+      return user_access('administer users');
+    }
+  }
+  return TRUE;
+}
+ 
+/**
+ *  Implements hook_preprocess_page().
+ */ 
+function nicemessages_preprocess_page(&$vars) {
+  if (nicemessages_are_enabled ()) {
+    // Do not display messages in standard way,
+    $vars['show_messages'] = false;
+    // display them with jGrowl
+    nicemessages_set_messages();
+  }
+}
+
+/**
+ * Check if nicemessages are enabled for current user.
+ */
+function nicemessages_are_enabled() {
+  if (user_access('toggle nicemessages')) {
+    global $user;
+    // Load the full user entity with fields attached.
+    $accounts = entity_load('user', array($user->uid));
+    $account = array_shift($accounts);
+    return empty($account->{NICEMESSAGES_FIELDNAME}[LANGUAGE_NONE][0]['value']) ? false : true;
+  } else {
+    return variable_get('nicemessages_default_state', 1) == 1 ? true : false;
+  }
+}
+
+/**
+ *  Save messages to js settings. 
+ */
+function nicemessages_set_messages() {
+  $items = array(); 
+  foreach (drupal_get_messages() as $type => $messages) {
+    foreach ($messages as $key => $message) {
+      $item = array(
+        'type' => $type,
+        'content' => $message,
+        'life' => variable_get('nicemessages_' . $type .'_life', '3') * 1000,
+        'glue' => variable_get('nicemessages_' . $type .'_glue', 'after'),
+        'speed' => variable_get('nicemessages_' . $type .'_speed', 'normal'),
+      );
+      $items[] = $item;
+    }
+  }
+  $settings = array(
+    'position' => variable_get('nicemessages_position', 'top-right'),
+    'items' => $items,
+  );
+  drupal_alter('nicemessages', $settings);
+  drupal_add_js(array('nicemessages' => $settings), 'setting');
+}
+
+/**
+ *  Module settings form.
+ */
+function nicemessages_settings_form() {
+  $form['global'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Global settings'),
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+  $form['global']['nicemessages_default_state'] = array(
+    '#type' => 'select',
+    '#title' => t('Nicemessages default state'),
+    '#required' => true,
+    '#default_value' => variable_get('niecemessages_default_state', 1),
+    '#options' => array(
+      1 => 'enabled',
+      0 => 'disabled'
+    ),
+    '#description' => 'Users with "toggle nicemessages" permission will be able to override this setting for their account.',
+  );
+  $form['global']['nicemessages_position'] = array(
+    '#type' => 'select',
+    '#title' => t('Where on the screen messages should be displayed?'),
+    '#default_value' => variable_get('nicemessages_position', 'top-right'),
+    '#options' => array(
+      'top-left' => t('top left corner'),
+      'top-right' => t('top right corner'),
+      'bottom-left' => t('bottom left corner'),
+      'bottom-right' => t('bottom right corner'),
+      'center' => t('center of the screen'),
+    ),
+  );
+  foreach (array('status', 'warning', 'error') as $type) {
+    $type_prefix = 'nicemessages_' . $type . '_';
+    $form[$type] = array(
+      '#type' => 'fieldset',
+      '#title' => t('@type messages', array('@type' => $type)),
+      '#collapsible' => TRUE,
+      '#collapsed' => TRUE,
+    );
+    $form[$type][$type_prefix . 'life'] = array(
+      '#type' => 'textfield',
+      '#title' => t('How long should the message be visible?'),
+      '#default_value' => variable_get($type_prefix . 'life', '3'),
+      '#size' => 10,
+      '#maxlength' => 10,
+      '#required' => FALSE,
+      '#field_suffix' => 'seconds',
+      '#description' => t('Enter 0 for sticky messages'),
+    );
+    $form[$type][$type_prefix . 'glue'] = array(
+      '#type' => 'select',
+      '#title' => t('Should new messages be prepended or appended to the list?'),
+      '#default_value' => variable_get($type_prefix . 'glue', 'after'),
+      '#options' => array(
+        'before' => 'prepended',
+        'after' => 'appended',
+      ),
+    );
+    $form[$type][$type_prefix . 'speed'] = array(
+      '#type' => 'select',
+      '#title' => t('Animation speed'),
+      '#default_value' => variable_get($type_prefix . 'speed', 'normal'),
+      '#options' => array(
+        'slow' => 'slow',
+        'normal' => 'normal',
+        'fast' => 'fast',
+      ),
+    );
+  }
+
+  return system_settings_form($form);
+}

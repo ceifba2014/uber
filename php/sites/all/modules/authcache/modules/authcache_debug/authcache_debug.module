@@ -1,0 +1,205 @@
+<?php
+
+/**
+ * Implements hook_menu().
+ */
+function authcache_debug_menu() {
+  $items['admin/config/system/authcache/debug'] = array(
+    'title' => 'Debug',
+    'description' => "Configure debug settings.",
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('authcache_debug_admin'),
+    'access arguments' => array('administer site configuration'),
+    'file' => 'authcache_debug.admin.inc',
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 20,
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_authcache_cookie().
+ */
+function authcache_debug_authcache_cookie($flags, $account) {
+  if ($flags & AUTHCACHE_FLAGS_LOGIN_ACTION || $flags & AUTHCACHE_FLAGS_LOGOUT_ACTION) {
+    $cookies['nocache_reason']['present'] = FALSE;
+    $cookies['cache_render']['present'] = FALSE;
+    return $cookies;
+  }
+}
+
+/**
+ * Implements hook_page_build().
+ *
+ * Attach authcache JavaScript if page is going to be cached.
+ */
+function authcache_debug_page_build(&$page) {
+  global $user;
+
+  // Add JS for debug mode?
+  if (authcache_debug_access()) {
+    authcache_ajax_add_command('debuginfo');
+    drupal_add_js(drupal_get_path('module', 'authcache_debug') . '/authcache_debug.js');
+    drupal_add_css(drupal_get_path('module', 'authcache_debug') . '/authcache_debug.css');
+
+    drupal_add_js(array('authcacheDebug' => array(
+      'cid' => _authcache_debug_cid(),
+      'key' => authcache_key(),
+      'cacheTime' => REQUEST_TIME,
+    )), 'setting');
+    if (user_is_logged_in()) {
+      drupal_add_js(array('authcacheDebug' => array(
+        'props' => authcache_key_properties(),
+      )), 'setting');
+    }
+  }
+
+  if (authcache_page_is_cacheable()) {
+    // Status messages prevent pages from being cached.
+    if (variable_get('authcache_debug_page', FALSE)) {
+      drupal_set_message(t('Caching disabled by') . ' ' . l('Authcache Config.', 'admin/config/system/authcache/debug'));
+    }
+  }
+}
+
+/**
+ * Implements hook_authcache_cache_data_alter().
+ */
+function authcache_debug_init() {
+  drupal_register_shutdown_function('_authcache_debug_shutdown');
+}
+
+/**
+ * Implements hook_flush_caches().
+ */
+function authcache_debug_flush_caches() {
+  return array('cache_authcache_debug');
+}
+
+/**
+ * Return generated cid for authcache debug information.
+ */
+function _authcache_debug_cid() {
+  $cid = &drupal_static(__FUNCTION__);
+
+  if (!isset($cid)) {
+    $cid = drupal_get_token();
+  }
+
+  return $cid;
+}
+
+/**
+ * Shutdown function for saving debug info.
+ */
+function _authcache_debug_shutdown() {
+  if (authcache_page_is_cacheable()) {
+    $debuginfo = module_invoke_all('authcache_debug_info');
+    drupal_alter('authcache_debug_info', $debuginfo);
+
+    $cid = _authcache_debug_cid();
+
+    $lifetime = variable_get('authcache_debug_cache_lifetime', 0);
+    $expire = $lifetime > 0 ? REQUEST_TIME + $lifetime : CACHE_TEMPORARY;
+
+    cache_set($cid, $debuginfo, 'cache_authcache_debug', $expire);
+  }
+}
+
+/**
+ * Implements hook_authcache_debug_info().
+ */
+function authcache_debug_authcache_debug_info() {
+  global $user, $_authcache_queries;
+
+  $info = array(
+    'pageRender' => timer_read('page'), // Benchmark
+    'Debug Users' => variable_get('authcache_debug_users', array()),
+    'Cache ID' => authcache_cid(),
+    'Cache User' => $user->uid,
+    'Cache Handler' => variable_get('authcache_cache_handler', 'authcache_builtin_cache_save'),
+  );
+
+  if (variable_get('authcache_cache_handler', 'authcache_builtin_cache_save') == 'authcache_builtin_cache_save') {
+    $info['Cache Class'] = get_class(_cache_get_object('cache_page'));
+  }
+
+  // Database benchmarks
+  //todo:D7 make this work (probably needs moving back into php shutdown function?)
+  if (isset($_authcache_queries) && variable_get('dev_query', 0)) {
+    $time_query = 0;
+    foreach ($_authcache_queries as $q) {
+      $time_query += $q[1];
+    }
+    $time_query = round($time_query * 1000, 2); // Convert seconds to milliseconds
+    $percent_query = round(($time_query / $info['pageRender']) * 100);
+
+    $info['page_queries'] = count($_authcache_queries) . " queries @ {$time_query} ms ({$percent_query}%)";
+  }
+  else {
+    unset($info['page_queries']);
+  }
+
+  return $info;
+}
+
+/**
+ * Implements hook_authcache_excluded().
+ */
+function authcache_debug_authcache_excluded($reason) {
+  if (authcache_debug_access()) {
+    drupal_add_js(array('authcacheDebug' => array('nocacheReason' => $reason)), 'setting');
+  }
+}
+
+/**
+ * Implements hook_authcache_cancelled().
+ */
+function authcache_debug_authcache_cancelled($reason) {
+  // It is possible that this hook is called after content has been delivered
+  // to the client. In this case it is not possible to set a cookie anymore.
+  // For example this may happen when files are passed thru drupal using the
+  // file_transfer function.
+  if (authcache_debug_access() && !headers_sent()) {
+    setcookie('nocache_reason', $reason, 0, ini_get('session.cookie_path'), ini_get('session.cookie_domain'), ini_get('session.cookie_secure') == '1');
+  }
+}
+
+/**
+ * Returns true if the currently logged in user has access to debug functions.
+ */
+function authcache_debug_access($account = NULL) {
+  global $user;
+
+  if (!isset($account)) {
+    $account = $user;
+  }
+
+  if (variable_get('authcache_debug_all', FALSE)) {
+    return TRUE;
+  }
+  elseif (!$account->uid) {
+    return FALSE;
+  }
+  else {
+    return in_array($account->name, variable_get('authcache_debug_users', array()));
+  }
+}
+
+/**
+ * Implements hook_authcache_ajax_command().
+ */
+function authcache_debug_authcache_ajax_command() {
+  return array(
+    'debuginfo' => array(
+      'handler' => 'AuthcacheDebugInfoCommand',
+      'request config' => array(
+        'q' => TRUE,
+      ),
+    ),
+    'dev_query' => array(
+      'handler' => 'AuthcacheDebugQueryCommand',
+    ),
+  );
+}

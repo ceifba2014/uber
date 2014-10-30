@@ -1,0 +1,172 @@
+<?php
+
+/**
+ * @file
+ * Ubercart uc_coupon.module schema
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function uc_coupon_schema() {
+  $schema = array();
+
+  $schema['uc_coupons'] = array(
+    'description' => 'Ubercart Coupons',
+    'fields' => array(
+      'cid' => array(
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'name' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'The coupon name',
+      ),
+      'code' => array(
+        'type' => 'varchar',
+        'length' => 100,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'The coupon code (or base code for bulk coupons)',
+      ),
+      'value' => array(
+        'type' => 'numeric',
+        'precision' => 10,
+        'scale' => 2,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'The value of the coupon as currency or percent',
+      ),
+      'type' => array(
+        'type' => 'varchar',
+        'length' => '12',
+        'not null' => TRUE,
+        'default' => 'price',
+        'description' => 'The type of the coupon (price, percent, set_price or store credit)',
+      ),
+      'status' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 1,
+        'description' => 'Whether or not the coupon is active',
+      ),
+      'valid_from' => array(
+        'type' => 'int',
+        'description' => 'The date from which the coupon is valid',
+      ),
+      'valid_until' => array(
+        'type' => 'int',
+        'description' => 'The date until which the coupon is valid',
+      ),
+      'max_uses' => array(
+        'type' => 'int',
+        'size' => 'small',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'The maximum number of uses allowed for this coupon',
+      ),
+      'minimum_order' => array(
+        'type' => 'numeric',
+        'precision' => 10,
+        'scale' => 2,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'The minimum order value to which this coupon will apply',
+      ),
+      'data' => array(
+        'type' => 'text',
+        'serialize' => TRUE,
+      ),
+      'bulk' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Whether or not this is a bulk coupon',
+      ),
+      'bulk_seed' => array(
+        'type' => 'char',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'The unique seed used to genrerate bulk coupon codes',
+      ),
+      'created' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'The date when this coupon was created',
+      ),
+    ),
+    'primary key' => array('cid'),
+  );
+
+  $schema['uc_coupons_orders'] = array(
+    'description' => 'Ubercart Coupons used on Orders',
+    'fields' => array(
+      'cuid' => array(
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'cid' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'oid' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'value' => array(
+        'type' => 'numeric',
+        'precision' => 10,
+        'scale' => 2,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'code' => array(
+        'type' => 'varchar',
+        'length' => 100,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+    ),
+    'primary key' => array('cuid'),
+  );
+  return $schema;
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function uc_coupon_uninstall() {
+  variable_del('uc_coupon_collapse_pane');
+  variable_del('uc_coupon_default_usage');
+  variable_del('uc_coupon_pane_description');
+  variable_del('uc_coupon_purchase_order_status');
+  variable_del('uc_coupon_querystring');
+  variable_del('uc_coupon_show_in_cart');
+  variable_del('uc_coupon_line_item_format');
+  variable_del('uc_coupon_line_item_weight');
+  variable_del('uc_coupon_form_components');
+  variable_del('uc_coupon_allow_multiple');
+  variable_del('uc_coupon_used_order_status');
+}
+
+
+/**
+ * Implements hook_update_last_removed().
+ * 
+ */
+function uc_coupon_update_last_removed() {
+  return 6006;
+}

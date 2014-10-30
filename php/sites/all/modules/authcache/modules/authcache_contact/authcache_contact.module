@@ -1,0 +1,38 @@
+<?php
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ *
+ * Remove default values on contact form.
+ */
+function authcache_contact_form_contact_site_form_alter(&$form, &$form_state) {
+  if (authcache_page_is_cacheable()) {
+    unset($form['name']['#default_value']);
+    unset($form['mail']['#default_value']);
+
+    if (authcache_get_request_property('ajax')) {
+      authcache_ajax_add_command('contact');
+      drupal_add_js(drupal_get_path('module', 'authcache_contact') . '/authcache_contact.js');
+    }
+  }
+}
+
+/**
+ * Implemnets hook_authcache_menu_item_cacheable().
+ */
+function authcache_contact_authcache_menu_item_cacheable() {
+  $items['user/%/contact'] = FALSE;
+
+  return $items;
+}
+
+/**
+ * Implements hook_authcache_ajax_command().
+ */
+function authcache_contact_authcache_ajax_command() {
+  return array(
+    'contact' => array(
+      'handler' => 'AuthcacheContactInfoCommand',
+    ),
+  );
+}

@@ -1,0 +1,29 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for the views_mosaic module.
+ */
+
+/**
+ * Implements hook_requirements().
+ */
+function views_mosaic_requirements($phase) {
+  $requirements = array();
+
+  $t = get_t();
+
+  if ($phase == 'install') {
+    module_load_include('module', 'views_mosaic');
+
+    if (!file_exists(libraries_get_path('mosaic') . VIEWS_MOSAIC_PLUGIN_PATH_JS)) {
+      $requirements['plugin'] = array(
+        'title' => $t('The plugin Mosaic for jQuery is not present.'),
+        'description' => $t('<b>The plugin Mosaic is not present.</b><br />Please download <a href="https://github.com/buildinternet/mosaic/zipball/master" target="_blank">https://github.com/buildinternet/mosaic/zipball/master</a>. The result must be like this "/sites/[domain]/libraries/mosaic' . VIEWS_MOSAIC_PLUGIN_PATH_JS . '"'),
+        'severity' => REQUIREMENT_ERROR,
+      );
+    }
+  }
+
+  return $requirements;
+}

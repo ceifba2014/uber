@@ -1,0 +1,62 @@
+<?php
+/**
+ * @file
+ * Install, update and uninstall functions for the authcache_ajax module.
+ *
+ */
+
+
+/**
+ * Implements hook_requirements().
+ */
+function authcache_ajax_requirements($phase) {
+  $requirements = array();
+  // Ensure translations don't break during installation.
+  $t = get_t();
+
+  if (!_authcache_ajax_backendstatus()) {
+    $requirements['authcache_ajax'] = array(
+      'title' => $t('Authcache Ajax'),
+      'value' => $t('authcache_ajax.inc is not the last entry immediately before authcache.inc in cache_backends variable.'),
+      'description' => $t('Your settings.php file must be modified to enable Authcache Ajax. See <a href="@url">README.txt</a>.', array('@url' => base_path() . drupal_get_path('module', 'authcache') . '/README.txt')),
+      'severity' => ($phase == 'runtime') ? REQUIREMENT_ERROR : REQUIREMENT_WARNING,
+    );
+  }
+
+  return $requirements;
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function authcache_ajax_uninstall() {
+  variable_del('authcache_ajax_factory');
+}
+
+/**
+ * Remove authcache_ajax_registry variable.
+ */
+function authcache_ajaxa_update_7000() {
+  variable_del('authcache_ajax_registry');
+}
+
+/**
+ * Return true if settings.php is properly configured and authcache_ajax.inc is the
+ * last entry in the cache_backends array.
+ */
+function _authcache_ajax_backendstatus() {
+  // Check whether authcache_ajax.inc is last in cache_backends.
+  $backends = variable_get('cache_backends', array());
+  $last_in_backends = end($backends);
+  $second_last_in_backends = prev($backends);
+
+  $authcache_inc = drupal_get_path('module', 'authcache') . '/authcache.inc';
+  $authcache_ajax_inc = drupal_get_path('module', 'authcache_ajax') . '/authcache_ajax.inc';
+
+  if (variable_get('authcache_cache_handler', 'authcache_builtin_cache_save') == 'authcache_builtin_cache_save') {
+    return $authcache_inc == $last_in_backends && $authcache_ajax_inc == $second_last_in_backends;
+  }
+  else {
+    return $authcache_ajax_inc == $last_in_backends;
+  }
+}

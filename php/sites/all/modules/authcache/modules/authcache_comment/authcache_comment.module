@@ -1,0 +1,150 @@
+<?php
+
+/**
+ * Implements hook_form_BASE_FORM_ID_alter(),
+ *
+ * Replace the username in the comment-form with a placeholder.
+ */
+function authcache_comment_form_comment_form_alter(&$form, &$form_state, $form_id) {
+  if (!user_is_logged_in() || !authcache_page_is_cacheable()) {
+    return;
+  }
+
+  if (authcache_get_request_property('js')) {
+    $form['author']['_author']['#markup'] = '<span class="authcache-user"></span>';
+  }
+  else {
+    unset($form['author']);
+  }
+}
+
+/**
+ * Implements hook_comment_view_alter().
+ *
+ * Hide the number-of-new-comments-link on node teasers.
+ */
+function authcache_comment_node_view_alter(&$build) {
+  if (!user_is_logged_in() || !authcache_page_is_cacheable()) {
+    return;
+  }
+
+  $node = $build['#node'];
+  if (authcache_get_request_property('ajax')) {
+    if(isset($build['links']['comment']['#links']['comment-comments'])) {
+      drupal_add_js(drupal_get_path('module', 'authcache_comment') . '/authcache_comment.js');
+      authcache_ajax_add_command('comment_num_new');
+      $build['links']['comment']['#links']['comment-new-comments'] = array(
+        'title' => t('Number of new comments unknown'),
+        'attributes' => array(
+          'class' => array('authcache-comment-num-new'),
+          'data-node-nid' => $node->nid,
+        ),
+      );
+    }
+  }
+  else {
+    unset($build['links']['comment']['#links']['comment-new-comments']);
+  }
+}
+
+/**
+ * Implements hook_comment_view_alter().
+ *
+ * Add replace the edit-link on comments if all of the following conditions are
+ * met:
+ *
+ *   1. Comment is published
+ *   2. A user has the right to edit its own comments
+ *   3. The user does *not* have administer comments permission
+ *
+ * If the logged in user belongs to a role with admin-permission, there is no
+ * need to alter the link. If on the other hand, the user belongs to a role
+ * without 'edit own comments' permission, the link will not be added by
+ * comment_links anyway.
+ *
+ * @see comment_links().
+ * @see comment_access().
+ */
+function authcache_comment_comment_view_alter(&$build) {
+  if (!user_is_logged_in() || !authcache_page_is_cacheable()) {
+    return;
+  }
+
+  $comment = $build['#comment'];
+  if ($comment->status == COMMENT_PUBLISHED && user_access('edit own comments') && !user_access('administer comments')) {
+    if (authcache_get_request_property('ajax')) {
+      drupal_add_js(drupal_get_path('module', 'authcache_comment') . '/authcache_comment.js');
+      $build['links']['comment']['#links']['comment-edit'] = array(
+        'title' => t('edit'),
+        'attributes' => array(
+          'class' => array('authcache-comment-edit'),
+          'data-comment-uid' => $comment->uid,
+          'data-comment-href' => url("comment/$comment->cid/edit"),
+        ),
+        'html' => TRUE,
+      );
+    }
+    else {
+      authcache_cancel(t('Edit link for user owning a comment on the page and authcache AJAX not enabled.'));
+    }
+  }
+
+  if (authcache_get_request_property('ajax')) {
+    // Remember the last viewed timestamp in the users session.
+    $nid = $build['#node']->nid;
+    $_SESSION['authcache_comment_lastviewed'] = array(
+      'nid' => $build['#node']->nid,
+      'timestamp' => $nid,
+    );
+  }
+}
+
+/**
+ * Process comment template variables
+ *
+ * @see comment.module
+ * Replace "new" marker with empty span containing timestamp info
+ * Add "edit" uid span for JS phase
+ */
+function authcache_preprocess_comment(&$variables) {
+  if (!user_is_logged_in() || !authcache_page_is_cacheable()) {
+    return;
+  }
+
+  // Will use Ajax to determine whether to display "new" marker for user
+  $variables['new'] = '<span class="authcache-comment-new" data-timestamp="' . $variables['comment']->changed . '"></span>';
+
+  if (authcache_get_request_property('ajax')) {
+    drupal_add_js(drupal_get_path('module', 'authcache_comment') . '/authcache_comment.js');
+    drupal_add_js(array('authcacheComment' => array(
+      'nid' => $variables['node']->nid,
+    )), 'setting');
+    authcache_ajax_add_command('node_history');
+  }
+}
+
+/**
+ * Implements hook_authcache_menu_item_cacheable().
+ */
+function authcache_comment_authcache_menu_item_cacheable() {
+  $items['comment/%'] = TRUE;
+  $items['comment/%/view'] = TRUE;
+  $items['comment/%/edit'] = !user_access('edit own comments') || user_access('administer comments');
+  $items['comment/%/delete'] = TRUE;
+
+  return $items;
+}
+
+/**
+ * Implements hook_authcache_ajax_command().
+ */
+function authcache_comment_authcache_ajax_command() {
+  return array(
+    'node_history' => array(
+      'handler' => 'AuthcacheCommentNodeHistoryCommand',
+    ),
+    'comment_num_new' => array(
+      'handler' => 'AuthcacheCommentNumNewCommand',
+    ),
+  );
+}

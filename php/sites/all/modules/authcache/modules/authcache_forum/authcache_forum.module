@@ -1,0 +1,86 @@
+<?php
+
+/**
+ * Process forum template variables
+ *
+ * @see forum.module
+ * Remove "new" marker
+ */
+function authcache_forum_preprocess_forum_list(&$variables) {
+  // Will use Ajax to determine whether to display "new" marker for user
+  if (authcache_page_is_cacheable()) {
+    foreach ($variables['forums'] as $id => $forum) {
+      if ($variables['user']->uid) {
+        if ($forum->num_topics) {
+          $forum->num_topics .= '<span class="authcache-topic-new" data-forum-id="' . $id . '"></span>';
+        }
+      }
+
+      // Remove personalized information from forum list.
+      $variables['forums'][$id]->new_text = '';
+      $variables['forums'][$id]->new_url = '';
+      $variables['forums'][$id]->new_topics = '';
+      $variables['forums'][$id]->icon_class = 'default';
+      $variables['forums'][$id]->icon_title = t('No new posts');
+      $variables['forums'][$id]->old_topics = $forum->num_topics;
+    }
+
+    if (authcache_get_request_property('ajax')) {
+      authcache_ajax_add_command('forum_topic_new');
+      drupal_add_js(drupal_get_path('module', 'authcache_forum') . '/authcache_forum.js');
+    }
+  }
+}
+
+/**
+ * Process forum template variables
+ *
+ * @see forum.module
+ * Remove "new" marker
+ */
+function authcache_forum_preprocess_forum_topic_list(&$variables) {
+  if (authcache_page_is_cacheable()) {
+    if (!empty($variables['topics'])) {
+      foreach ($variables['topics'] as $id => $topic) {
+        $nid = $variables['topics'][$id]->nid;
+
+        // Replace "new" icons.  If you are using custom icons, make sure
+        // the filenames have the same format as Drupal core
+        $icon = str_replace('hot-new', 'hot', $variables['topics'][$id]->icon);
+        $icon = str_replace('new', 'default', $variables['topics'][$id]->icon);
+        $variables['topics'][$id]->icon =
+          '<span class="authcache-topic-icon" data-nid="' . $nid . '">' .
+          $icon .
+          '</span>';
+
+        $variables['topics'][$id]->title .= '<span class="authcache-topic-info" data-timestamp="' . $variables['topics'][$id]->last_comment_timestamp . '" data-nid="' . $nid . '"></span>';
+
+        // "New" reply count will be handle via Ajax
+        if ($topic->comment_count) {
+          $variables['topics'][$id]->comment_count .= '<span class="authcache-topic-replies" data-nid="' . $nid . '"></span>';
+          $variables['topics'][$id]->new_text = '';
+          $variables['topics'][$id]->new_url = '';
+        }
+      }
+
+      if (authcache_get_request_property('ajax')) {
+        authcache_ajax_add_command('forum_topic_info');
+        drupal_add_js(drupal_get_path('module', 'authcache_forum') . '/authcache_forum.js');
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_authcache_ajax_command().
+ */
+function authcache_forum_authcache_ajax_command() {
+  return array(
+    'forum_topic_new' => array(
+      'handler' => 'AuthcacheForumTopicNewCommand',
+    ),
+    'forum_topic_info' => array(
+      'handler' => 'AuthcacheForumTopcInfoCommand',
+    ),
+  );
+}
