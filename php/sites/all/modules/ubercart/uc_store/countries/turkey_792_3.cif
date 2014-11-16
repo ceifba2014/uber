@@ -1,13 +1,21 @@
 <?php
 
 /**
-* First implement hook_install() using the name of the country as the base of
+* Implements hook_install() using the name of the country as the base of
 * the function name.
 */
 function turkey_install() {
   // Make the entry in the country table.
   // VALUES = Country ID, Country Name, 2-digit Code, 3-digit Code, File Version
-  db_query("INSERT INTO {uc_countries} (country_id, country_name, country_iso_code_2, country_iso_code_3, version) VALUES (792, 'Turkey', 'TR', 'TUR', 3)");
+  db_insert('uc_countries')
+    ->fields(array(
+      'country_id' => 792,
+      'country_name' => 'Turkey',
+      'country_iso_code_2' => 'TR',
+      'country_iso_code_3' => 'TUR',
+      'version' => 3,
+    ))
+    ->execute();
 
   // Make the entries in the zones table.
   $zones = array(
@@ -94,14 +102,13 @@ function turkey_install() {
     array(792, 'TR-67', 'Zonguldak'),
   );
 
+  $query = db_insert('uc_zones')->fields(array('zone_country_id', 'zone_code', 'zone_name'));
   foreach ($zones as $zone) {
-    db_query("INSERT INTO {uc_zones} (zone_country_id, zone_code, zone_name) VALUES (%d, '%s', '%s')", $zone);
+    $query->values($zone);
   }
+  $query->execute();
 
-  // Use uc_set_address_format() with the country ID as the first argument and
-  // an address format string as the second.  Documentation on address formats
-  // is available at:
-  // http://www.ubercart.org/ubercart_users_guide/country_settings#address_format_docs
+  // Set address format
   uc_set_address_format(
     792,
     "!company\r\n".
@@ -114,14 +121,17 @@ function turkey_install() {
 }
 
 /**
-* If necessary, implement hook_update() with $version being the only argument.
+* Implements hook_update() with $version being the only argument.
 * Add a new case for each version update, and be sure to always include the
 * latest changes in the install function.
 */
 function turkey_update($version) {
   switch ($version) {
     case 2:
-      db_query("UPDATE {uc_countries} SET country_iso_code_2 = 'TR' WHERE country_id = 792");
+      db_update('uc_countries')
+        ->fields(array('country_iso_code_2' => 'TR'))
+        ->condition('country_id', 792)
+        ->execute();
       break;
 
     case 3:
@@ -209,9 +219,11 @@ function turkey_update($version) {
         array(792, 'TR-67', 'Zonguldak'),
       );
 
+      $query = db_insert('uc_zones')->fields(array('zone_country_id', 'zone_code', 'zone_name'));
       foreach ($zones as $zone) {
-        db_query("INSERT INTO {uc_zones} (zone_country_id, zone_code, zone_name) VALUES (%d, '%s', '%s')", $zone);
+        $query->values($zone);
       }
+      $query->execute();
       break;
   }
 }

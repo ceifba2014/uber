@@ -5,112 +5,124 @@
  * Contains the callbacks for the payment order pane supplied with
  * Ubercart and their corresponding helper functions.
  *
- * Order panes are defined using hook_order_pane() and use a callback to handle
- * the different processes involved in order viewing/editing.  The payment order
- * pane is defined in uc_payment_order_pane() in uc_payment.module.
+ * Order panes are defined using hook_uc_order_pane() and use a callback to
+ * handle the different processes involved in order viewing/editing. The
+ * payment order pane is defined in uc_payment_uc_order_pane() in
+ * uc_payment.module.
  */
 
 /**
  * Handles the Payment order pane.
  */
-function uc_order_pane_payment($op, $order) {
+function uc_order_pane_payment($op, $order, &$form = NULL, &$form_state = NULL) {
   switch ($op) {
     case 'view':
-      $output = '';
-      if (variable_get('uc_payment_tracking', TRUE)) {
-        $context = array(
-          'revision' => 'formatted-original',
-          'type' => 'amount',
-          'subject' => array(
-            'order' => $order,
-          ),
+      $build['balance'] = array('#markup' => t('Balance: @balance', array('@balance' => uc_currency_format(uc_payment_balance($order)))));
+
+      if (user_access('view payments')) {
+        $build['view_payments'] = array(
+          '#markup' => ' (' . l(t('View'), 'admin/store/orders/' . $order->order_id . '/payments') . ')',
         );
-        $output = t('Balance: @balance', array('@balance' => uc_price(uc_payment_balance($order), $context)));
-        $output .= ' ('. l(t('View'), 'admin/store/orders/'. $order->order_id .'/payments') .')<br />';
       }
-      $method_name = _payment_method_data($order->payment_method, 'review');
+
+      $method_name = _uc_payment_method_data($order->payment_method, 'review');
       if (empty($method_name)) {
-        $method_name = _payment_method_data($order->payment_method, 'name');
+        $method_name = _uc_payment_method_data($order->payment_method, 'name');
       }
-      $output .= t('Method: @payment_method', array('@payment_method' => $method_name));
-      $func = _payment_method_data($order->payment_method, 'callback');
+      $build['method'] = array(
+        '#markup' => t('Method: @payment_method', array('@payment_method' => $method_name)),
+        '#prefix' => '<br />',
+      );
+      $func = _uc_payment_method_data($order->payment_method, 'callback');
       if (function_exists($func)) {
         $method_output = $func('order-view', $order);
         if (!empty($method_output)) {
-          $output .= '<br />'. $method_output;
+          $build['output'] = $method_output + array(
+            '#prefix' => '<br />',
+          );
         }
       }
-      return $output;
+
+      return $build;
 
     case 'customer':
-      $method_name = _payment_method_data($order->payment_method, 'review');
+      $method_name = _uc_payment_method_data($order->payment_method, 'review');
       if (empty($method_name)) {
-        $method_name = _payment_method_data($order->payment_method, 'name');
+        $method_name = _uc_payment_method_data($order->payment_method, 'name');
       }
-      $output = t('Method: @payment_method', array('@payment_method' => $method_name));
-      $func = _payment_method_data($order->payment_method, 'callback');
+      $build['method'] = array('#markup' => t('Method: @payment_method', array('@payment_method' => $method_name)));
+      $func = _uc_payment_method_data($order->payment_method, 'callback');
       if (function_exists($func)) {
         $method_output = $func('customer-view', $order);
         if (!empty($method_output)) {
-          $output .= '<br />'. $method_output;
+          $build['output'] = $method_output + array(
+            '#prefix' => '<br />',
+          );
         }
       }
-      return $output;
+
+      return $build;
 
     case 'edit-form':
-      drupal_add_js('misc/progress.js');
-      drupal_add_js(array('defPaymentMsg' => ''), 'setting');
-
-      $form['payment'] = array(
-        '#type' => 'fieldset',
-        '#title' => t("Modify 'Payment info'"),
-        '#collapsible' => TRUE,
-        '#collapsed' => FALSE
-      );
-      $methods = _payment_method_list();
-      foreach ($methods as $method) {
-        $options[$method['id']] = $method['name'];
+      $methods = _uc_payment_method_list();
+      $options = array();
+      foreach ($methods as $id => $method) {
+        $options[$id] = $method['name'];
       }
       $form['payment']['payment_method'] = array(
         '#type' => 'select',
         '#title' => t('Payment method'),
         '#default_value' => $order->payment_method,
-        '#options' => (is_array($options)) ? $options : array(t('None available')),
-        '#attributes' => array('onchange' => "add_order_save_hold(); get_payment_details(Drupal.settings.ucURL.adminOrders + '". $order->order_id ."/payment_details/' + this.value);"),
-        '#disabled' => (is_array($options)) ? FALSE : TRUE,
+        '#options' => !empty($options) ? $options : array(t('None available')),
+        '#disabled' => empty($options),
+        '#ajax' => array(
+          'callback' => 'uc_payment_order_pane_ajax_callback',
+          'progress' => array('type' => 'throbber'),
+          'wrapper' => 'payment-details',
+        ),
       );
+
+      $form['payment']['payment_details'] = array(
+        '#tree' => TRUE,
+        '#prefix' => '<div id="payment-details">',
+        '#suffix' => '</div>',
+      );
+
+      $method = isset($form_state['values']['payment_method']) ? $form_state['values']['payment_method'] : $order->payment_method;
+      $func = _uc_payment_method_data($method, 'callback');
+      if (function_exists($func) && $details = $func('order-details', $order)) {
+        if (is_array($details)) {
+          $form['payment']['payment_details'] += $details;
+        }
+        else {
+          $form['payment']['payment_details']['#markup'] = $details;
+        }
+      }
       return $form;
 
     case 'edit-theme':
-      drupal_add_js(drupal_get_path('module', 'uc_payment') .'/uc_payment.js');
-
-      // build a JS array of our payment methods
-      $methods = _payment_method_list();
-      $method_array_js = array();
-      foreach ($methods as $method) {
-        $method_array_js[$method['name']] = $method['id'];
-      }
-      drupal_add_js(array('methods' => $method_array_js), 'setting');
-
-      // begin the order lock, also get payment details
-      drupal_add_js(array('ucOrderInitiate' => TRUE), 'setting');
-
-      $output = '<table class="order-edit-table">';
-      foreach (element_children($order['payment']) as $field) {
-        $title = $order['payment'][$field]['#title'];
-        $order['payment'][$field]['#title'] = NULL;
-        $output .= '<tr><td class="oet-label">'. $title .':</td><td>'
-                 . drupal_render($order['payment'][$field]) .'</td></tr>';
-      }
-      $output .= '</table><div id="payment_details"></div>';
-      return $output;
+      return drupal_render($form['payment']);
 
     case 'edit-process':
-      $changes['payment_method'] = $order['payment_method'];
-      $func = _payment_method_data($order['payment_method'], 'callback');
-      if (function_exists($func) && ($return = $func('edit-process', $order)) != NULL && is_array($return)) {
-        $changes = array_merge($changes, $return);
+      $changes['payment_method'] = $form_state['values']['payment_method'];
+      $changes['payment_details'] = isset($form_state['values']['payment_details']) ? $form_state['values']['payment_details'] : array();
+      $func = _uc_payment_method_data($form_state['values']['payment_method'], 'callback');
+      if (function_exists($func) && ($return = $func('edit-process', $order, $form, $form_state)) != NULL && is_array($return)) {
+        $changes['payment_details'] = array_merge($changes['payment_details'], $return);
+      }
+
+      if (!isset($order->payment_details)) {
+        $order->payment_details = array();
       }
       return $changes;
   }
+}
+
+/**
+ * AJAX callback to render the payment method pane.
+ */
+function uc_payment_order_pane_ajax_callback($form, &$form_state) {
+  $commands[] = ajax_command_replace('#payment-details', trim(drupal_render($form['payment']['payment_details'])));
+  $commands[] = ajax_command_prepend('#payment-details', theme('status_messages'));
+  return array('#type' => 'ajax', '#commands' => $commands);
 }

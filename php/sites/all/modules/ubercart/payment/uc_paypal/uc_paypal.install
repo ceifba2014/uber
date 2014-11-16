@@ -2,12 +2,14 @@
 
 /**
  * @file
- * Installation file for PayPal, primarily for the logging of IPNs.
+ * Install, update and uninstall functions for the uc_paypal module.
+ */
 
 /**
  * Implements hook_requirements().
  */
 function uc_paypal_requirements($phase) {
+  $requirements = array();
   $t = get_t();
 
   $has_curl = function_exists('curl_init');
@@ -96,6 +98,12 @@ function uc_paypal_schema() {
     'indexes' => array(
       'order_id' => array('order_id'),
     ),
+    'foreign keys' => array(
+      'uc_orders' => array(
+        'table' => 'uc_orders',
+        'columns' => array('order_id' => 'order_id'),
+      ),
+    ),
   );
 
   return $schema;
@@ -105,42 +113,92 @@ function uc_paypal_schema() {
  * Implements hook_install().
  */
 function uc_paypal_install() {
-  drupal_install_schema('uc_paypal');
-
   $t = get_t();
-  db_query("INSERT INTO {uc_order_statuses} (order_status_id, title, state, weight, locked) VALUES ('paypal_pending', '%s', 'post_checkout', 7, 1);", $t('PayPal pending'));
+
+  db_merge('uc_order_statuses')
+    ->key(array('order_status_id' => 'paypal_pending'))
+    ->insertFields(array(
+      'order_status_id' => 'paypal_pending',
+      'title' => $t('PayPal pending'),
+      'state' => 'post_checkout',
+      'weight' => 7,
+      'locked' => 1,
+    ))
+    ->updateFields(array(
+      'state' => 'post_checkout',
+      'locked' => 1,
+    ))
+    ->execute();
 }
 
 /**
  * Implements hook_uninstall().
  */
 function uc_paypal_uninstall() {
-  drupal_uninstall_schema('uc_paypal');
-  db_query("DELETE FROM {variable} WHERE name LIKE 'uc_paypal_%%'");
-  db_query("UPDATE {uc_order_statuses} SET locked = 0 WHERE order_status_id = 'paypal_pending'");
+  db_update('uc_order_statuses')
+    ->fields(array(
+      'locked' => 0,
+    ))
+    ->condition('order_status_id', 'paypal_pending')
+    ->execute();
+
+  db_delete('variable')
+    ->condition('name', 'uc_paypal_%', 'LIKE')
+    ->execute();
 }
 
 /**
  * Implements hook_update_last_removed().
  */
 function uc_paypal_update_last_removed() {
-  return 2;
+  // 7.x-3.0-beta2 and earlier were installed with schema version 0,
+  // which causes update.php to fail.
+  return drupal_get_installed_schema_version('uc_paypal') == 0 ? 0 : 6000;
 }
 
-function uc_paypal_update_6000() {
-  $ret = array();
+/*
+ * Removed completely unnecessary update 7000.
+ */
 
-  db_drop_index($ret, 'uc_payment_paypal_ipn', 'order_id');
-  db_change_field($ret, 'uc_payment_paypal_ipn', 'order_id', 'order_id', array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0), array('indexes' => array('order_id' => array('order_id'))));
-  db_change_field($ret, 'uc_payment_paypal_ipn', 'received', 'received', array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0));
+/**
+ * Fix incorrect order status configuration.
+ */
+function uc_paypal_update_7001() {
+  db_delete('uc_order_statuses')
+    ->condition('order_status_id', '')
+    ->execute();
 
-  return $ret;
+  db_merge('uc_order_statuses')
+    ->key(array('order_status_id' => 'paypal_pending'))
+    ->insertFields(array(
+      'order_status_id' => 'paypal_pending',
+      'title' => t('PayPal pending'),
+      'state' => 'payment_received',
+      'weight' => 7,
+      'locked' => 1,
+    ))
+    ->updateFields(array(
+      'state' => 'payment_received',
+      'locked' => 1,
+    ))
+    ->execute();
 }
 
-function uc_paypal_update_6200() {
-  $ret = array();
+/**
+ * Fix incorrect order state configuration.
+ */
+function uc_paypal_update_7300() {
+  db_update('uc_order_statuses')
+    ->fields(array(
+      'state' => 'post_checkout',
+    ))
+    ->condition('order_status_id', 'paypal_pending')
+    ->execute();
+}
 
-  $ret[] = update_sql("UPDATE {uc_order_statuses} SET state = 'post_checkout' WHERE order_status_id = 'paypal_pending'");
-
-  return $ret;
+/**
+ * Remove unused variable.
+ */
+function uc_paypal_update_7301() {
+  variable_del('uc_paypal_wps_checkout_button');
 }

@@ -2,9 +2,12 @@
 
 /**
  * @file
- * Install hooks for uc_payment_pack.module.
+ * Install, update and uninstall functions for the uc_payment_pack module.
  */
 
+/**
+ * Implements hook_schema().
+ */
 function uc_payment_pack_schema() {
   $schema = array();
 
@@ -35,6 +38,12 @@ function uc_payment_pack_schema() {
       'order_id' => array('order_id'),
     ),
     'primary key' => array('check_id'),
+    'foreign keys' => array(
+      'uc_orders' => array(
+        'table' => 'uc_orders',
+        'columns' => array('order_id' => 'order_id'),
+      ),
+    ),
   );
 
   $schema['uc_payment_cod'] = array(
@@ -73,6 +82,12 @@ function uc_payment_pack_schema() {
       ),
     ),
     'primary key' => array('order_id'),
+    'foreign keys' => array(
+      'uc_orders' => array(
+        'table' => 'uc_orders',
+        'columns' => array('order_id' => 'order_id'),
+      ),
+    ),
   );
 
   $schema['uc_payment_other'] = array(
@@ -94,38 +109,32 @@ function uc_payment_pack_schema() {
       ),
     ),
     'primary key' => array('order_id'),
+    'foreign keys' => array(
+      'uc_orders' => array(
+        'table' => 'uc_orders',
+        'columns' => array('order_id' => 'order_id'),
+      ),
+    ),
   );
 
   return $schema;
 }
 
-function uc_payment_pack_install() {
-  drupal_install_schema('uc_payment_pack');
-}
-
+/**
+ * Implements hook_uninstall().
+ */
 function uc_payment_pack_uninstall() {
-  drupal_uninstall_schema('uc_payment_pack');
-
-  db_query("DELETE FROM {variable} WHERE name LIKE 'uc_check_%%'");
-  db_query("DELETE FROM {variable} WHERE name LIKE 'uc_cod_%%'");
+  db_delete('variable')
+    ->condition(db_or()
+      ->condition('name', 'uc_check_%', 'LIKE')
+      ->condition('name', 'uc_cod_%', 'LIKE')
+    )
+    ->execute();
 }
 
-function uc_payment_pack_update_6000() {
-  $ret = array();
-
-  db_drop_primary_key($ret, 'uc_payment_check');
-  db_drop_index($ret, 'uc_payment_check', 'order_id');
-  db_change_field($ret, 'uc_payment_check', 'check_id', 'check_id', array('type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE), array('primary key' => array('check_id')));
-  db_change_field($ret, 'uc_payment_check', 'order_id', 'order_id', array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0), array('indexes' => array('order_id' => array('order_id'))));
-
-  db_drop_primary_key($ret, 'uc_payment_cod');
-  db_change_field($ret, 'uc_payment_cod', 'order_id', 'order_id', array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0), array('primary key' => array('order_id')));
-  db_change_field($ret, 'uc_payment_cod', 'delivery_month', 'delivery_month', array('type' => 'int', 'unsigned' => TRUE, 'size' => 'small', 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_payment_cod', 'delivery_day', 'delivery_day', array('type' => 'int', 'unsigned' => TRUE, 'size' => 'small', 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_payment_cod', 'delivery_year', 'delivery_year', array('type' => 'int', 'unsigned' => TRUE, 'size' => 'small', 'not null' => TRUE, 'default' => 0));
-
-  db_drop_primary_key($ret, 'uc_payment_other');
-  db_change_field($ret, 'uc_payment_other', 'order_id', 'order_id', array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0), array('primary key' => array('order_id')));
-
-  return $ret;
+/**
+ * Implements hook_update_last_removed().
+ */
+function uc_payment_pack_update_last_removed() {
+  return 6000;
 }

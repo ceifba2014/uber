@@ -18,28 +18,23 @@ define('UC_FILE_FORM_ACTION', 1   );
  * @see uc_file_admin_files_form_action()
  * @ingroup forms
  */
-function uc_file_admin_files_form($form_state) {
+function uc_file_admin_files_form($form, &$form_state) {
 
-  switch ($form_state['storage']['step']) {
-
-    case UC_FILE_FORM_FILES:
-
-      // Refresh our file list before display.
-      uc_file_refresh();
-
-      return array(
-        '#theme'  => 'uc_file_admin_files_form_show',
-        '#validate' => array('uc_file_admin_files_form_show_validate'),
-        '#submit' => array('uc_file_admin_files_form_show_submit'),
-      ) + uc_file_admin_files_form_show_files($form_state);
-
-    case UC_FILE_FORM_ACTION:
-
+  if (isset($form_state['storage']['step']) && $form_state['storage']['step'] == UC_FILE_FORM_ACTION) {
       return array(
         '#validate' => array('uc_file_admin_files_form_action_validate'),
         '#submit'   => array('uc_file_admin_files_form_action_submit'),
-      ) + uc_file_admin_files_form_action($form_state);
+      ) + $form + uc_file_admin_files_form_action($form, $form_state);
+  }
+  else {
+    // Refresh our file list before display.
+    uc_file_refresh();
 
+    return array(
+      '#theme'  => 'uc_file_admin_files_form_show',
+      '#validate' => array('uc_file_admin_files_form_show_validate'),
+      '#submit' => array('uc_file_admin_files_form_show_submit'),
+    ) + $form + uc_file_admin_files_form_show_files($form, $form_state);
   }
 }
 
@@ -52,44 +47,53 @@ function uc_file_admin_files_form($form_state) {
  * @see theme_uc_file_admin_files_form_show()
  * @ingroup forms
  */
-function uc_file_admin_files_form_show_files($form_state) {
-
+function uc_file_admin_files_form_show_files($form, &$form_state) {
   $form['#tree'] = TRUE;
 
-  $form['#header'] = array(
-    array(),
-    array('data' => t('File'), 'field' => 'f.filename', 'sort' => 'asc'),
-    array('data' => t('Product'), 'field' => 'n.title'),
-    array('data' => t('SKU'), 'field' => 'fp.model')
+  $header = array(
+    'filename' => array('data' => t('File'), 'field' => 'f.filename', 'sort' => 'asc'),
+    'title' => array('data' => t('Product'), 'field' => 'n.title'),
+    'model' => array('data' => t('SKU'), 'field' => 'fp.model')
   );
 
   // Create pager.
-  $query = pager_query(
-    "SELECT n.nid, f.filename, n.title, fp.model, f.fid, pf.pfid FROM {uc_files} as f ".
-      "LEFT JOIN {uc_file_products} as fp ON (f.fid = fp.fid) ".
-      "LEFT JOIN {uc_product_features} as pf ON (fp.pfid = pf.pfid) ".
-      "LEFT JOIN {node} as n ON (pf.nid = n.nid) ". tablesort_sql($form['#header']),
-    UC_FILE_PAGER_SIZE,
-    0,
-    "SELECT COUNT(*) FROM {uc_files}"
-  );
+  $query = db_select('uc_files', 'f')->extend('PagerDefault')->extend('TableSort')
+    ->orderByHeader($header)
+    ->limit(UC_FILE_PAGER_SIZE);
+  $query->leftJoin('uc_file_products', 'fp', 'f.fid = fp.fid');
+  $query->leftJoin('uc_product_features', 'pf', 'fp.pfid = pf.pfid');
+  $query->leftJoin('node', 'n', 'pf.nid = n.nid');
+  $query->addField('n', 'nid');
+  $query->addField('f', 'filename');
+  $query->addField('n', 'title');
+  $query->addField('fp', 'model');
+  $query->addField('f', 'fid');
+  $query->addField('pf', 'pfid');
 
-  // Create checkboxes for each file.
-  $form['file_select'] = array('#tree' => TRUE);
-  while ($file = db_fetch_object($query)) {
-    $form['file_select'][$file->fid]['check'] = array('#type' => 'checkbox');
-    $form['file_select'][$file->fid]['filename'] = array('#value' => $file->filename);
-    $form['file_select'][$file->fid]['title'] = array('#value' => $file->title);
-    $form['file_select'][$file->fid]['nid'] = array('#value' => $file->nid);
-    $form['file_select'][$file->fid]['model'] = array('#value' => $file->model);
+  $count_query = db_select('uc_files');
+  $count_query->addExpression('COUNT(*)');
+
+  $query->setCountQuery($count_query);
+  $result = $query->execute();
+
+  $options = array();
+  foreach ($result as $file) {
+    $options[$file->fid] = array(
+      'filename' => array(
+        'data' => check_plain($file->filename),
+        'class' => is_dir(uc_file_qualify_file($file->filename)) ? array('uc-file-directory-view') : array(),
+      ),
+      'title' => l($file->title, 'node/' . $file->nid),
+      'model' => check_plain($file->model),
+    );
   }
 
-  // Implement a Checkall / Uncheck all deal.
-  $check_all = l(t('Check all'), "admin/store/products/files", array('attributes' => array('id' => 'uc_file_select_all'), 'fragment' => 'NULL'));
-  $uncheck_all = l(t('Uncheck all'), 'admin/store/products/files', array('attributes' => array('id' => 'uc_file_select_none'), 'fragment' => 'NULL'));
-  $form['uc_file_select'] = array(
-    '#type' => 'markup',
-    '#value' => $check_all .' / '. $uncheck_all,
+  // Create checkboxes for each file.
+  $form['file_select'] = array(
+    '#type' => 'tableselect',
+    '#header' => $header,
+    '#options' => $options,
+    '#empty' => t('No file downloads available.'),
   );
 
   $form['uc_file_action'] = array(
@@ -105,9 +109,9 @@ function uc_file_admin_files_form_show_files($form_state) {
     'uc_file_delete' => t('Delete file(s)'),
   );
 
-  // Check if any hook_file_action('info', $args) are implemented
-  foreach (module_implements('file_action') as $module) {
-    $name = $module .'_file_action';
+  // Check if any hook_uc_file_action('info', $args) are implemented
+  foreach (module_implements('uc_file_action') as $module) {
+    $name = $module . '_uc_file_action';
     $result = $name('info', NULL);
     if (is_array($result)) {
       foreach ($result as $key => $action) {
@@ -126,7 +130,8 @@ function uc_file_admin_files_form_show_files($form_state) {
     '#suffix' => '</div>',
   );
 
-  $form['uc_file_action']['submit'] = array(
+  $form['uc_file_actions']['actions'] = array('#type' => 'actions');
+  $form['uc_file_action']['actions']['submit'] = array(
     '#type' => 'submit',
     '#value' => t('Perform action'),
     '#prefix' => '<div class="duration">',
@@ -180,47 +185,22 @@ function uc_file_admin_files_form_show_submit($form, &$form_state) {
 /**
  * Returns HTML for uc_file_admin_files_form_show().
  *
+ * @param $variables
+ *   An associative array containing:
+ *   - form: A render element representing the form.
+ *
  * @see uc_file_admin_files_form_show_files()
  * @ingroup themeable
  */
-function theme_uc_file_admin_files_form_show($form) {
-  $output = '';
-
-  $header = $form['#header'];
-
-  // Format the file table.
-  $rows = array();
-  foreach ($form['file_select'] as $fid => $value) {
-
-    // We only want numeric fid's
-    if (!is_numeric($fid)) {
-      continue;
-    }
-
-    $filename = drupal_render($form['file_select'][$fid]['filename']);
-
-    // Make directories bold + italic (or whatever's in the CSS).
-    $class = is_dir(uc_file_qualify_file($filename)) ? 'uc-file-directory-view' : '';
-
-    $rows[] = array(
-      array('data' => drupal_render($form['file_select'][$fid]['check'])),
-      array('data' => $filename, 'class' => $class),
-      array('data' => l(drupal_render($form['file_select'][$fid]['title']), 'node/'. drupal_render($form['file_select'][$fid]['nid']))),
-      array('data' => drupal_render($form['file_select'][$fid]['model']))
-    );
-  }
-
-  if (empty($rows)) {
-    $rows[] = array(array('data' => t('No file downloads available.'), 'colspan' => 4));
-  }
+function theme_uc_file_admin_files_form_show($variables) {
+  $form = $variables['form'];
 
   // Render everything.
-  $output .= '<p>'. t('File downloads can be attached to any Ubercart product as a product feature. For security reasons the <a href="!download_url">file downloads directory</a> is separated from the Drupal <a href="!file_url">file system</a>. Here are the list of files (and their associated Ubercart products) that can be used for file downloads.', array('!download_url' => url('admin/store/settings/products/edit/features', array('query' => 'destination=admin/store/products/files')), '!file_url' => url('admin/settings/file-system'))) .'</p>';
+  $output = '<p>' . t('File downloads can be attached to any Ubercart product as a product feature. For security reasons the <a href="!download_url">file downloads directory</a> is separated from the Drupal <a href="!file_url">file system</a>. Below is the list of files (and their associated Ubercart products, if any) that can be used for file downloads.', array('!download_url' => url('admin/store/settings/products', array('query' => array('destination' => 'admin/store/products/files'))), '!file_url' => url('admin/config/media/file-system'))) . '</p>';
   $output .= drupal_render($form['uc_file_action']);
-  $output .= drupal_render($form['uc_file_select']);
-  $output .= theme('table', $header, $rows);
-  $output .= theme('pager', NULL, UC_FILE_PAGER_SIZE, 0);
-  $output .= drupal_render($form);
+  $output .= drupal_render($form['file_select']);
+  $output .= theme('pager');
+  $output .= drupal_render_children($form);
 
   return $output;
 }
@@ -233,14 +213,8 @@ function theme_uc_file_admin_files_form_show($form) {
  * @see uc_file_admin_files_form_action_submit()
  * @ingroup forms
  */
-function uc_file_admin_files_form_action($form_state) {
-  $file_ids = array();
-  foreach ((array)$form_state['values']['file_select'] as $fid => $value) {
-    $value = $value['check'];
-    if ($value) {
-      $file_ids[] = $fid;
-    }
-  }
+function uc_file_admin_files_form_action($form, &$form_state) {
+  $file_ids = array_filter($form_state['values']['file_select']);
 
   $form['file_ids'] = array('#type' => 'value', '#value' => $file_ids);
   $form['action'] = array('#type' => 'value', '#value' => $form_state['values']['uc_file_action']['action']);
@@ -258,7 +232,7 @@ function uc_file_admin_files_form_action($form_state) {
         // Gather a list of user-selected filenames.
         $file = uc_file_get_by_id($file_id);
         $filename = $file->filename;
-        $file_list[] = (substr($filename, -1) == "/") ? $filename .' ('. t('directory') .')' : $filename;
+        $file_list[] = (substr($filename, -1) == "/") ? $filename . ' (' . t('directory') . ')' : $filename;
 
         // Determine if there are any directories in this list.
         $path = uc_file_qualify_file($filename);
@@ -269,8 +243,11 @@ function uc_file_admin_files_form_action($form_state) {
 
       // Base files/dirs the user selected.
       $form['selected_files'] = array(
-        '#type' => 'markup',
-        '#value' => theme('item_list', $file_list, NULL, 'ul', array('class' => 'selected-file-name')),
+        '#theme' => 'item_list',
+        '#items' => $file_list,
+        '#attributes' => array(
+          'class' => array('selected-file-name'),
+        ),
       );
 
       $form = confirm_form(
@@ -287,18 +264,22 @@ function uc_file_admin_files_form_action($form_state) {
           '#title' => t('Delete selected directories and their sub directories'),
         );
 
-        // Default to FALSE... although we have the JS behavior to update with the state
-        // of the checkbox on load, this should improve the experience of users who
-        // don't have JS enabled over not defaulting to any info.
+        // Default to FALSE. Although we have the JS behavior to update with the
+        // state of the checkbox on load, this should improve the experience of
+        // users who don't have JS enabled over not defaulting to any info.
         $form['affected_files'] = array(
-          '#type' => 'markup',
-          '#value' => theme('item_list', $affected_list[FALSE], 'Affected file(s)', 'ul', array('class' => 'affected-file-name')),
+          '#theme' => 'item_list',
+          '#items' => $affected_list[FALSE],
+          '#title' => t('Affected files'),
+          '#attributes' => array(
+            'class' => array('affected-file-name'),
+          ),
         );
       }
 
       break;
 
-    case 'uc_file_upload': // Upload file
+    case 'uc_file_upload':
 
       // Calculate the max size of uploaded files, in bytes.
       $max_bytes = trim(ini_get('post_max_size'));
@@ -315,8 +296,8 @@ function uc_file_admin_files_form_action($form_state) {
       // '/' is always available.
       $directories = array('' => '/');
       $files = db_query("SELECT * FROM {uc_files}");
-      while ($file = db_fetch_object($files)) {
-        if (is_dir(variable_get('uc_file_base_dir', NULL) ."/". $file->filename)) {
+      foreach ($files as $file) {
+        if (is_dir(variable_get('uc_file_base_dir', NULL) . "/" . $file->filename)) {
           $directories[$file->filename] = $file->filename;
         }
       }
@@ -324,16 +305,16 @@ function uc_file_admin_files_form_action($form_state) {
       $form['upload_dir'] = array(
         '#type' => 'select',
         '#title' => t('Directory'),
-        '#description' => t('The directory to upload the file to. The default directory is the root of the file downloads directory.'),
+        '#description' => t('The directory on the server where the file should be put. The default directory is the root of the file downloads directory.'),
         '#options' => $directories,
       );
       $form['upload'] = array(
         '#type' => 'file',
         '#title' => t('File'),
-        '#description' => t('The maximum file size that can be uploaded is %size bytes. You will need to use a different method to upload the file to the directory (e.g. (S)FTP, SCP) if your file exceeds this size.<br />The module will automatically detect files you upload using an alternate method.', array('%size' => number_format($max_bytes))),
+        '#description' => t('The maximum file size that can be uploaded is %size bytes. You will need to use a different method to upload the file to the directory (e.g. (S)FTP, SCP) if your file exceeds this size. Files you upload using one of these alternate methods will be automatically detected.', array('%size' => number_format($max_bytes))),
       );
 
-      $form['#attributes']['class'] = 'foo';
+      $form['#attributes']['class'][] = 'foo';
       $form = confirm_form(
         $form, t('Upload file'),
         'admin/store/products/files',
@@ -349,9 +330,10 @@ function uc_file_admin_files_form_action($form_state) {
 
     default:
 
-      // This action isn't handled by us, so check if any hook_file_action('form', $args) are implemented.
-      foreach (module_implements('file_action') as $module) {
-        $name = $module .'_file_action';
+      // This action isn't handled by us, so check if any
+      // hook_uc_file_action('form', $args) are implemented.
+      foreach (module_implements('uc_file_action') as $module) {
+        $name = $module . '_uc_file_action';
         $result = $name('form', array('action' => $form_state['values']['uc_file_action']['action'], 'file_ids' => $file_ids));
         $form = (is_array($result)) ? array_merge($form, $result) : $form;
       }
@@ -363,9 +345,10 @@ function uc_file_admin_files_form_action($form_state) {
 }
 
 /**
- * Validation handler for uc_file_admin_files_form().
+ * Validation handler for uc_file_admin_files_form_action().
  *
  * @see uc_file_admin_files_form_action()
+ * @see uc_file_admin_files_form_action_submit()
  */
 function uc_file_admin_files_form_action_validate($form, &$form_state) {
 
@@ -374,11 +357,12 @@ function uc_file_admin_files_form_action_validate($form, &$form_state) {
     case 'uc_file_upload':
 
       // Upload the file and get its object.
-      if ($temp_file = file_save_upload('upload', array())) {
+      if ($temp_file = file_save_upload('upload', array('file_validate_extensions' => array()))) {
 
-        // Check if any hook_file_action('upload_validate', $args) are implemented.
-        foreach (module_implements('file_action') as $module) {
-          $name = $module .'_file_action';
+        // Check if any hook_uc_file_action('upload_validate', $args)
+        // are implemented.
+        foreach (module_implements('uc_file_action') as $module) {
+          $name = $module . '_uc_file_action';
           $result = $name('upload_validate', array('file_object' => $temp_file, 'form_id' => $form_id, 'form_state' => $form_state));
         }
 
@@ -393,9 +377,10 @@ function uc_file_admin_files_form_action_validate($form, &$form_state) {
 
     default:
 
-      // This action isn't handled by us, so check if any hook_file_action('validate', $args) are implemented
-      foreach (module_implements('file_action') as $module) {
-        $name = $module .'_file_action';
+      // This action isn't handled by us, so check if any
+      // hook_uc_file_action('validate', $args) are implemented
+      foreach (module_implements('uc_file_action') as $module) {
+        $name = $module . '_uc_file_action';
         $result = $name('validate', array('form_id' => $form_id, 'form_state' => $form_state));
       }
 
@@ -404,9 +389,9 @@ function uc_file_admin_files_form_action_validate($form, &$form_state) {
 }
 
 /**
- * Submit handler for uc_file_admin_files_form().
+ * Submit handler for uc_file_admin_files_form_action().
  *
- * @see uc_file_admin_files_action()
+ * @see uc_file_admin_files_form_action()
  */
 function uc_file_admin_files_form_action_submit($form, &$form_state) {
 
@@ -431,9 +416,9 @@ function uc_file_admin_files_form_action_submit($form, &$form_state) {
 
     case 'uc_file_upload':
 
-      // Build the destination location. We start with the base directory, then add any
-      // directory which was explicitly selected.
-      $dir = variable_get('uc_file_base_dir', NULL) .'/';
+      // Build the destination location. We start with the base directory,
+      // then add any directory which was explicitly selected.
+      $dir = variable_get('uc_file_base_dir', NULL) . '/';
       $dir = (is_null($form_state['values']['upload_dir'])) ? $dir : $dir . $form_state['values']['upload_dir'];
       if (is_dir($dir)) {
 
@@ -441,11 +426,11 @@ function uc_file_admin_files_form_action_submit($form, &$form_state) {
         $file_object = $form_state['storage']['temp_file'];
 
         // Copy the file to its final location.
-        if (copy($file_object->filepath, $dir .'/'. $file_object->filename)) {
+        if (copy($file_object->uri, $dir . '/' . $file_object->filename)) {
 
-          // Check if any hook_file_action('upload', $args) are implemented
-          foreach (module_implements('file_action') as $module) {
-            $name = $module .'_file_action';
+          // Check if any hook_uc_file_action('upload', $args) are implemented
+          foreach (module_implements('uc_file_action') as $module) {
+            $name = $module . '_uc_file_action';
             $result = $name('upload', array('file_object' => $file_object, 'form_id' => $form_id, 'form_state' => $form_state));
           }
 
@@ -466,9 +451,10 @@ function uc_file_admin_files_form_action_submit($form, &$form_state) {
 
     default:
 
-      // This action isn't handled by us, so check if any hook_file_action('submit', $args) are implemented
-      foreach (module_implements('file_action') as $module) {
-        $name = $module .'_file_action';
+      // This action isn't handled by us, so check if any
+      // hook_uc_file_action('submit', $args) are implemented
+      foreach (module_implements('uc_file_action') as $module) {
+        $name = $module . '_uc_file_action';
         $result = $name('submit', array('form_id' => $form_id, 'form_state' => $form_state));
       }
       break;
@@ -504,12 +490,12 @@ function _uc_file_display_arrays_equivalent($recur, $no_recur) {
  */
 function _uc_file_build_js_file_display($file_ids) {
 
-  // Gather the files if recursion is selected. Get 'em all ready to be punched into
-  // the file list.
+  // Gather the files if recursion IS selected.
+  // Get 'em all ready to be punched into the file list.
   $recursion_file_ids = _uc_file_sort_names(_uc_file_get_dir_file_ids($file_ids, TRUE));
   foreach ($recursion_file_ids as $file_id) {
     $file = uc_file_get_by_id($file_id);
-    $recursion[] = '<li>'. $file->filename .'</li>';
+    $recursion[] = '<li>' . $file->filename . '</li>';
   }
 
   // Gather the files if recursion ISN'T selected.
@@ -517,7 +503,7 @@ function _uc_file_build_js_file_display($file_ids) {
   $no_recursion_file_ids = $file_ids;
   foreach ($no_recursion_file_ids as $file_id) {
     $file = uc_file_get_by_id($file_id);
-    $no_recursion[] = '<li>'. $file->filename .'</li>';
+    $no_recursion[] = '<li>' . $file->filename . '</li>';
   }
 
   // We'll disable the recursion checkbox if they're equal.
@@ -529,8 +515,8 @@ function _uc_file_build_js_file_display($file_ids) {
 
   // Set up some JS to dynamically update the list based on the
   // recursion checkbox state.
-  drupal_add_js('uc_file_list[false] = '. drupal_to_js('<li>'. implode('</li><li>', $no_recursion) .'</li>') .';', 'inline');
-  drupal_add_js('uc_file_list[true] = '. drupal_to_js('<li>'. implode('</li><li>', $recursion) .'</li>') .';', 'inline');
+  drupal_add_js('uc_file_list[false] = ' . drupal_json_encode('<li>' . implode('</li><li>', $no_recursion) . '</li>') . ';', 'inline');
+  drupal_add_js('uc_file_list[true] = ' . drupal_json_encode('<li>' . implode('</li><li>', $recursion) . '</li>') . ';', 'inline');
 
   return $result;
 }

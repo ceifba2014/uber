@@ -2,7 +2,7 @@
 
 /**
  * @file
- * Views 2 hooks and callback registries.
+ * Views hooks for Ubercart products.
  */
 
 /**
@@ -58,7 +58,7 @@ function uc_product_views_data() {
       'handler' => 'views_handler_sort',
     ),
     'filter' => array(
-      'handler' => 'views_handler_filter_float',
+      'handler' => 'views_handler_filter_numeric',
     ),
   );
 
@@ -80,7 +80,7 @@ function uc_product_views_data() {
       'handler' => 'views_handler_sort',
     ),
     'filter' => array(
-      'handler' => 'views_handler_filter_float',
+      'handler' => 'views_handler_filter_numeric',
     ),
   );
 
@@ -102,7 +102,17 @@ function uc_product_views_data() {
       'handler' => 'views_handler_sort',
     ),
     'filter' => array(
-      'handler' => 'views_handler_filter_float',
+      'handler' => 'views_handler_filter_numeric',
+    ),
+  );
+
+  $data['uc_products']['display_price'] = array(
+    'title' => t('Display price'),
+    'help' => t('The price for which the product is sold, altered for display (e.g. with inclusive taxes).'),
+    'field' => array(
+      'handler' => 'uc_product_handler_field_display_price',
+      'real field' => 'nid',
+      'click sortable' => TRUE,
     ),
   );
 
@@ -121,7 +131,7 @@ function uc_product_views_data() {
       'handler' => 'views_handler_sort',
     ),
     'filter' => array(
-      'handler' => 'views_handler_filter_float',
+      'handler' => 'views_handler_filter_numeric',
     ),
   );
 
@@ -199,6 +209,10 @@ function uc_product_views_data() {
   $data['uc_products']['ordering'] = array(
     'title' => t('List position'),
     'help' => t('The default sort criteria in the catalog.'),
+    'field' => array(
+      'help' => t("The product list position."),
+      'handler' => 'views_handler_field_numeric',
+    ),
     'sort' => array(
       'handler' => 'views_handler_sort',
     ),
@@ -245,6 +259,7 @@ function uc_product_views_data() {
         ),
       ),
       'handler' => 'uc_product_handler_field_addtocart',
+      'element type' => 'div',
     ),
   );
 
@@ -261,39 +276,9 @@ function uc_product_views_data() {
         ),
       ),
       'handler' => 'uc_product_handler_field_buyitnow',
+      'element type' => 'div',
     ),
   );
 
   return $data;
-}
-
-/**
- * Implements hook_views_handlers().
- */
-function uc_product_views_handlers() {
-  return array(
-    'info' => array(
-      'path' => drupal_get_path('module', 'uc_product') .'/views',
-    ),
-    'handlers' => array(
-      'uc_product_handler_field_price' => array(
-        'parent' => 'views_handler_field_numeric',
-      ),
-      'uc_product_handler_field_weight' => array(
-        'parent' => 'views_handler_field_numeric',
-      ),
-      'uc_product_handler_field_length' => array(
-        'parent' => 'views_handler_field_numeric',
-      ),
-      'uc_product_handler_filter_product' => array(
-        'parent' => 'views_handler_filter_boolean_operator',
-      ),
-      'uc_product_handler_field_addtocart' => array(
-        'parent' => 'views_handler_field',
-      ),
-      'uc_product_handler_field_buyitnow' => array(
-        'parent' => 'views_handler_field',
-      ),
-    ),
-  );
 }

@@ -3,12 +3,11 @@ description = Provides a report of sales tax your customers paid.
 dependencies[] = uc_reports
 dependencies[] = uc_taxes
 package = Ubercart - core (optional)
-core = 6.x
-php = 5.0
+core = 7.x
 
 ; Information added by Drupal.org packaging script on 2013-12-17
-version = "6.x-2.13"
-core = "6.x"
+version = "7.x-3.6"
+core = "7.x"
 project = "ubercart"
-datestamp = "1387304007"
+datestamp = "1387304010"
 

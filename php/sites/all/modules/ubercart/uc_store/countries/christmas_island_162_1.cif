@@ -3,7 +3,15 @@
 function christmas_island_install() {
   // Make the entry in the country table.
   // VALUES = Country ID, Country Name, 2-digit Code, 3-digit Code, File Version
-  db_query("INSERT INTO {uc_countries} (country_id, country_name, country_iso_code_2, country_iso_code_3, version) VALUES (162,'Christmas Island','CX','CXR',1)");
+  db_insert('uc_countries')
+    ->fields(array(
+      'country_id' => 162,
+      'country_name' => 'Christmas Island',
+      'country_iso_code_2' => 'CX',
+      'country_iso_code_3' => 'CXR',
+      'version' => 1,
+    ))
+    ->execute();
 
   // No zones
 

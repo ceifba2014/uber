@@ -2,7 +2,7 @@
 
 /**
  * @file
- * Install hooks for uc_attribute.module.
+ * Install, update and uninstall functions for the uc_attribute module.
  */
 
 /**
@@ -125,6 +125,12 @@ function uc_attribute_schema() {
     'indexes' => array(
       'aid' => array('aid'),
     ),
+    'foreign keys' => array(
+      'uc_attributes' => array(
+        'table' => 'uc_attributes',
+        'columns' => array('aid' => 'aid'),
+      ),
+    ),
   );
 
   $schema['uc_class_attributes'] = array(
@@ -183,6 +189,16 @@ function uc_attribute_schema() {
       ),
     ),
     'primary key' => array('pcid', 'aid'),
+    'foreign keys' => array(
+      'uc_product_classes' => array(
+        'table' => 'uc_product_classes',
+        'columns' => array('pcid' => 'pcid'),
+      ),
+      'uc_attributes' => array(
+        'table' => 'uc_attributes',
+        'columns' => array('aid' => 'aid'),
+      ),
+    ),
   );
 
   $schema['uc_class_attribute_options'] = array(
@@ -233,6 +249,16 @@ function uc_attribute_schema() {
       ),
     ),
     'primary key' => array('pcid', 'oid'),
+    'foreign keys' => array(
+      'uc_product_classes' => array(
+        'table' => 'uc_product_classes',
+        'columns' => array('pcid' => 'pcid'),
+      ),
+      'uc_attribute_options' => array(
+        'table' => 'uc_attribute_options',
+        'columns' => array('oid' => 'oid'),
+      ),
+    ),
   );
 
   $schema['uc_product_attributes'] = array(
@@ -291,6 +317,16 @@ function uc_attribute_schema() {
       ),
     ),
     'primary key' => array('nid', 'aid'),
+    'foreign keys' => array(
+      'uc_products' => array(
+        'table' => 'uc_products',
+        'columns' => array('nid' => 'nid'),
+      ),
+      'uc_attributes' => array(
+        'table' => 'uc_attributes',
+        'columns' => array('aid' => 'aid'),
+      ),
+    ),
   );
 
   $schema['uc_product_options'] = array(
@@ -341,6 +377,16 @@ function uc_attribute_schema() {
       ),
     ),
     'primary key' => array('nid', 'oid'),
+    'foreign keys' => array(
+      'uc_products' => array(
+        'table' => 'uc_products',
+        'columns' => array('nid' => 'nid'),
+      ),
+      'uc_attribute_options' => array(
+        'table' => 'uc_attribute_options',
+        'columns' => array('oid' => 'oid'),
+      ),
+    ),
   );
 
   $schema['uc_product_adjustments'] = array(
@@ -359,6 +405,7 @@ function uc_attribute_schema() {
         'length' => 255,
         'not null' => TRUE,
         'default' => '',
+        'serialize' => TRUE,
       ),
       'model' => array(
         'description' => 'The SKU representing the product with the combination of options.',
@@ -371,179 +418,87 @@ function uc_attribute_schema() {
     'indexes' => array(
       'nid' => array('nid'),
     ),
+    'foreign keys' => array(
+      'uc_products' => array(
+        'table' => 'uc_products',
+        'columns' => array('nid' => 'nid'),
+      ),
+    ),
   );
 
   return $schema;
 }
 
 /**
- * Implements hook_install().
- */
-function uc_attribute_install() {
-  drupal_install_schema('uc_attribute');
-}
-
-/**
  * Implements hook_uninstall().
  */
 function uc_attribute_uninstall() {
-  drupal_uninstall_schema('uc_attribute');
-
   variable_del('uc_attribute_option_price_format');
+}
+
+/**
+ * Implements hook_update_dependencies().
+ */
+function uc_attribute_update_dependencies() {
+  $dependencies['uc_attribute'][7000] = array(
+    'filter' => 7005,
+  );
+
+  return $dependencies;
 }
 
 /**
  * Implements hook_update_last_removed().
  */
 function uc_attribute_update_last_removed() {
-  return 10;
-}
-
-function uc_attribute_update_6000() {
-  $ret = array();
-
-  // Standardize database definitions during upgrade to Drupal 6.
-  // ID fields are unsigned, regular-sized ints.
-  // "Boolean" flags are unsigned tiny ints.
-  // Postgres tables will have the necessary default values, and MySQL
-  // doesn't need them, so the schema can just be mismatched for that.
-
-  // Some id columns are already auto-incremented, so we can't remove the
-  // primary key beforehand in MySQL. So we add it later for Postgres.
-
-  db_change_field($ret, 'uc_attributes', 'aid', 'aid', array('type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE));
-  db_change_field($ret, 'uc_attributes', 'required', 'required', array('type' => 'int', 'unsigned' => TRUE, 'size' => 'tiny', 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_attributes', 'display', 'display', array('type' => 'int', 'unsigned' => TRUE, 'size' => 'tiny', 'not null' => TRUE, 'default' => 1));
-  if ($GLOBALS['db_type'] == 'pgsql') {
-    db_add_primary_key($ret, 'uc_attributes', array('aid'));
-  }
-
-  db_change_field($ret, 'uc_attribute_options', 'aid', 'aid', array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_attribute_options', 'oid', 'oid', array('type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE));
-  if ($GLOBALS['db_type'] == 'pgsql') {
-    db_add_primary_key($ret, 'uc_attribute_options', array('oid'));
-  }
-
-  db_drop_primary_key($ret, 'uc_class_attributes');
-  db_change_field($ret, 'uc_class_attributes', 'aid', 'aid', array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0), array('primary key' => array('pcid', 'aid')));
-  db_change_field($ret, 'uc_class_attributes', 'default_option', 'default_option', array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_class_attributes', 'required', 'required', array('type' => 'int', 'unsigned' => TRUE, 'size' => 'tiny', 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_class_attributes', 'display', 'display', array('type' => 'int', 'unsigned' => TRUE, 'size' => 'tiny', 'not null' => TRUE, 'default' => 1));
-
-  db_drop_primary_key($ret, 'uc_class_attribute_options');
-  db_change_field($ret, 'uc_class_attribute_options', 'oid', 'oid', array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0), array('primary key' => array('pcid', 'oid')));
-
-  db_drop_primary_key($ret, 'uc_product_attributes');
-  db_change_field($ret, 'uc_product_attributes', 'nid', 'nid', array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_product_attributes', 'aid', 'aid', array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_product_attributes', 'default_option', 'default_option', array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_product_attributes', 'required', 'required', array('type' => 'int', 'unsigned' => TRUE, 'size' => 'tiny', 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_product_attributes', 'display', 'display', array('type' => 'int', 'unsigned' => TRUE, 'size' => 'tiny', 'not null' => TRUE, 'default' => 1));
-  db_add_primary_key($ret, 'uc_product_attributes', array('nid', 'aid'));
-
-  db_drop_primary_key($ret, 'uc_product_options');
-  db_change_field($ret, 'uc_product_options', 'nid', 'nid', array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_product_options', 'oid', 'oid', array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0));
-  db_add_primary_key($ret, 'uc_product_options', array('nid', 'oid'));
-
-  db_drop_primary_key($ret, 'uc_product_adjustments');
-  db_change_field($ret, 'uc_product_adjustments', 'nid', 'nid', array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0), array('indexes' => array('nid' => array('nid'))));
-
-  return $ret;
-}
-
-function uc_attribute_update_6001() {
-  $ret = array();
-
-  db_change_field($ret, 'uc_attribute_options', 'cost', 'cost', array('type' => 'numeric', 'precision' => 15, 'scale' => 3, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_attribute_options', 'price', 'price', array('type' => 'numeric', 'precision' => 15, 'scale' => 3, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_class_attribute_options', 'cost', 'cost', array('type' => 'numeric', 'precision' => 15, 'scale' => 3, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_class_attribute_options', 'price', 'price', array('type' => 'numeric', 'precision' => 15, 'scale' => 3, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_product_options', 'cost', 'cost', array('type' => 'numeric', 'precision' => 15, 'scale' => 3, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_product_options', 'price', 'price', array('type' => 'numeric', 'precision' => 15, 'scale' => 3, 'not null' => TRUE, 'default' => 0));
-
-  return $ret;
-}
-
-function uc_attribute_update_6002() {
-  $ret = array();
-
-  $result = db_query("SELECT * FROM {permission}");
-  while($perm = db_fetch_object($result)) {
-    $perm->perm = str_replace("adminster attributes", "administer attributes", $perm->perm);
-    drupal_write_record('permission', $perm, 'pid');
-  }
-  $ret[] = array('success' => TRUE, 'query' => "Replaced all instances of 'adminster attributes' with 'administer attributes' in the permissions table.");
-
-  return $ret;
+  return 6005;
 }
 
 /**
- * Add label to attributes to allow differently named attributes to show with
- * the same label on product add to cart forms.
+ * Add description format for attributes.
  */
-function uc_attribute_update_6003() {
-  $ret = array();
-
-  $spec = array(
-    'type' => 'varchar',
-    'length' => 255,
+function uc_attribute_update_7000() {
+  db_add_field('uc_attributes', 'format', array(
+    'description' => 'Format of the attribute description.',
+    'type' => 'int',
     'not null' => TRUE,
-    'default' => '',
-  );
-  db_add_field($ret, 'uc_attributes', 'label', $spec);
-  db_add_field($ret, 'uc_class_attributes', 'label', $spec);
-  db_add_field($ret, 'uc_product_attributes', 'label', $spec);
+    'default' => 0,
+  ));
 
-  $ret[] = array('success' => TRUE, 'query' => 'Added label to product attributes.');
-
-  return $ret;
+  db_update('uc_attributes')
+    ->fields(array('format' => 0))
+    ->execute();
 }
 
 /**
- * Sort adjustment combination arrays by attribute id.
+ * Change default description format to NULL.
  */
-function uc_attribute_update_6004() {
-  $ret = array();
+function uc_attribute_update_7001() {
+  db_change_field('uc_attributes', 'format', 'format', array(
+    'description' => 'Format of the attribute description.',
+    'type' => 'int',
+    'not null' => FALSE,
+    'default' => NULL,
+  ));
 
-  $changes = 0;
-  $result = db_query('SELECT * FROM {uc_product_adjustments}');
-  while($row = db_fetch_object($result)) {
-    $combination = unserialize($row->combination);
-    ksort($combination);
-    db_query("UPDATE {uc_product_adjustments} SET combination = '%s' WHERE nid = %d AND model = '%s' AND combination = '%s'", serialize($combination), $row->nid, $row->model, $row->combination);
-    $changes++;
-  }
-
-  $ret[] = array('success' => TRUE, 'query' => 'Sorted adjustment combination arrays by attribute id.');
-
-  return $ret;
+  db_update('uc_attributes')
+    ->fields(array('format' => filter_fallback_format()))
+    ->execute();
 }
 
 /**
- * Change currency fields to numeric(16,5).
+ * Remove attribute description format..
  */
-function uc_attribute_update_6005() {
-  $ret = array();
-
-  db_change_field($ret, 'uc_attribute_options', 'cost', 'cost', array('type' => 'numeric', 'precision' => 16, 'scale' => 5, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_attribute_options', 'price', 'price', array('type' => 'numeric', 'precision' => 16, 'scale' => 5, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_class_attribute_options', 'cost', 'cost', array('type' => 'numeric', 'precision' => 16, 'scale' => 5, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_class_attribute_options', 'price', 'price', array('type' => 'numeric', 'precision' => 16, 'scale' => 5, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_product_options', 'cost', 'cost', array('type' => 'numeric', 'precision' => 16, 'scale' => 5, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_product_options', 'price', 'price', array('type' => 'numeric', 'precision' => 16, 'scale' => 5, 'not null' => TRUE, 'default' => 0));
-
-  return $ret;
+function uc_attribute_update_7002() {
+  db_drop_field('uc_attributes', 'format');
 }
-
 
 /**
  * Add index to attribute options table.
  */
-function uc_attribute_update_6006() {
-  $ret = array();
-
-  db_add_index($ret, 'uc_attribute_options', 'aid', array('aid'));
-
-  return $ret;
+function uc_attribute_update_7003() {
+  // Indexes may have been added in 6.x-2.x.
+  if (!db_index_exists('uc_attribute_options', 'aid')) {
+    db_add_index('uc_attribute_options', 'aid', array('aid'));
+  }
 }

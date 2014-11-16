@@ -10,9 +10,8 @@
  * displayed to customers.
  */
 
-require_once('uc_order.order_pane.inc');
-require_once('uc_order.line_item.inc');
-require_once('uc_order.ca.inc');
+require_once dirname(__FILE__) . '/uc_order.order_pane.inc';
+require_once dirname(__FILE__) . '/uc_order.line_item.inc';
 
 /**
  * Defines an order object.
@@ -56,16 +55,45 @@ class UcOrder {
   public $modified = 0;
   public $currency = '';
 
-  function __construct() {
-    $this->order_status = uc_order_state_default('in_checkout');
+  /**
+   * Order object constructor.
+   *
+   * @param $uid
+   *   The user ID that owns the order, or a cart ID. Cart IDs are integer
+   *   user IDs for authenticated users, or are strings of 22 characters
+   *   or more for anonymous users.
+   * @param $state
+   *   The initial order state.
+   */
+  function __construct($uid = 0, $state = 'in_checkout') {
+    if (strlen($uid) < 22 && $uid > 0) {
+      $this->uid = $uid;
+      if ($account = user_load($uid)) {
+        $this->primary_email = $account->mail;
+      }
+    }
+
+    $this->order_status = uc_order_state_default($state);
     $this->currency = variable_get('uc_currency_code', 'USD');
+    $this->billing_country = variable_get('uc_store_country', 840);
+    $this->delivery_country = variable_get('uc_store_country', 840);
+    $this->created = REQUEST_TIME;
+    $this->modified = REQUEST_TIME;
   }
 
 }
 
-/*******************************************************************************
- * Hook Functions (Drupal)
- ******************************************************************************/
+/**
+ * Implements hook_help().
+ */
+function uc_order_help($path, $arg) {
+  switch ($path) {
+    case 'admin/store/settings/orders/products/fields':
+      return '<p>' . t('Attach fields to order product entities.  These entities represent the product line items that appear in orders.  Fields attached here are not visible in the current version of Ubercart, but they are available in Views.  A ')
+        . l(t('Computed Field'), 'http://drupal.org/project/computed_field')
+        . t(' is useful for attaching custom data to each product as it is ordered.') . '</p>';
+  }
+}
 
 /**
  * Implements hook_menu().
@@ -74,123 +102,80 @@ function uc_order_menu() {
   global $user;
   $items = array();
 
-  $items['admin/store/settings/orders'] = array(
-    'title' => 'Order settings',
-    'description' => 'Configure the order settings.',
-    'page callback' => 'uc_order_settings_overview',
-    'access arguments' => array('administer store'),
-    'type' => MENU_NORMAL_ITEM,
+  $items['admin/store/customers'] = array(
+    'title' => 'Customers',
+    'description' => 'View and search customer information.',
+    'page callback' => 'uc_order_customers',
+    'access arguments' => array('view customers'),
+    'weight' => -6,
+    'position' => 'left',
     'file' => 'uc_order.admin.inc',
   );
-  $items['admin/store/settings/orders/overview'] = array(
-    'title' => 'Overview',
-    'description' => 'View the order settings.',
-    'type' => MENU_DEFAULT_LOCAL_TASK,
-    'weight' => -10,
-  );
-  $items['admin/store/settings/orders/edit'] = array(
-    'title' => 'Edit',
-    'description' => 'Edit the order settings.',
+  // admin/store/customers/view is provided by Views.
+  // admin/store/customers/orders/% is provided by Views.
+
+  $items['admin/store/settings/orders'] = array(
+    'title' => 'Orders',
+    'description' => 'Configure the display and workflow for orders.',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('uc_order_settings_form'),
     'access arguments' => array('administer store'),
-    'type' => MENU_LOCAL_TASK,
-    'weight' => -5,
     'file' => 'uc_order.admin.inc',
   );
-  $items['admin/store/settings/orders/edit/basic'] = array(
-    'title' => 'Order settings',
+  $items['admin/store/settings/orders/settings'] = array(
+    'title' => 'Settings',
     'description' => 'Edit the basic order settings.',
     'type' => MENU_DEFAULT_LOCAL_TASK,
     'weight' => -10,
   );
-  $items['admin/store/settings/orders/edit/workflow'] = array(
-    'title' => 'Order workflow',
+  $items['admin/store/settings/orders/workflow'] = array(
+    'title' => 'Workflow',
     'description' => 'Modify and configure order states and statuses.',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('uc_order_workflow_form'),
     'access arguments' => array('administer order workflow'),
     'type' => MENU_LOCAL_TASK,
-    'weight' => -5,
+    'weight' => -8,
     'file' => 'uc_order.admin.inc',
   );
-  $items['admin/store/settings/orders/edit/panes'] = array(
-    'title' => 'Order panes',
-    'description' => 'Edit the pane settings for order pages.',
-    'page callback' => 'drupal_get_form',
-    'page arguments' => array('uc_order_panes_form'),
-    'access arguments' => array('administer store'),
-    'type' => MENU_LOCAL_TASK,
-    'weight' => 0,
-    'file' => 'uc_order.admin.inc',
-  );
-
-  $items['admin/store/settings/orders/edit/workflow/create'] = array(
-    'title' => 'Create an order status',
+  $items['admin/store/settings/orders/workflow/create'] = array(
+    'title' => 'Create custom order status',
     'description' => 'Create a custom order status for your store.',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('uc_order_status_create_form'),
     'access arguments' => array('administer order workflow'),
-    'type' => MENU_CALLBACK,
+    'type' => MENU_LOCAL_ACTION,
     'file' => 'uc_order.admin.inc',
   );
 
   $items['admin/store/orders'] = array(
     'title' => 'Orders',
     'description' => 'View and process orders.',
-    'page callback' => 'uc_order_admin',
-    'page arguments' => array(NULL, NULL, FALSE),
+    'page callback' => 'uc_order_orders',
     'access arguments' => array('view all orders'),
-    'type' => MENU_NORMAL_ITEM,
     'weight' => -10,
+    'position' => 'left',
     'file' => 'uc_order.admin.inc',
   );
-  $items['admin/store/orders/view'] = array(
-    'title' => 'View orders',
-    'description' => 'View and process the orders received through your website.',
-    'page arguments' => array(NULL, NULL, FALSE),
-    'access arguments' => array('view all orders'),
-    'type' => MENU_NORMAL_ITEM,
-    'weight' => -10,
-    'file' => 'uc_order.admin.inc',
-  );
-  $items['admin/store/orders/sort/%'] = array(
-    'title' => 'Orders',
-    'description' => 'View orders with a particular order status.',
-    'page arguments' => array(NULL, NULL, FALSE),
-    'access arguments' => array('view all orders'),
-    'type' => MENU_CALLBACK,
-    'file' => 'uc_order.admin.inc',
-  );
+  // admin/store/orders/view is provided by Views.
   $items['admin/store/orders/create'] = array(
     'title' => 'Create order',
     'description' => 'Create an empty new order.',
-    'page callback' => 'uc_order_create',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('uc_order_create_form'),
     'access arguments' => array('create orders'),
-    'type' => MENU_NORMAL_ITEM,
     'weight' => -5,
     'file' => 'uc_order.admin.inc',
   );
   $items['admin/store/orders/create/%user'] = array(
-    'title' => 'Create order',
+    'title' => 'Create order for this customer',
     'description' => 'Create an empty new order.',
-    'page callback' => 'uc_order_create',
+    'page callback' => 'uc_order_create_for_user',
     'page arguments' => array(4),
     'access arguments' => array('create orders'),
-    'type' => MENU_NORMAL_ITEM,
-    'weight' => -5,
     'file' => 'uc_order.admin.inc',
   );
-
-  $items['admin/store/orders/search'] = array(
-    'title' => 'Search orders',
-    'description' => 'Search existing orders.',
-    'page callback' => 'uc_order_usearch',
-    'access arguments' => array('view all orders'),
-    'type' => MENU_NORMAL_ITEM,
-    'weight' => 0,
-    'file' => 'uc_order.admin.inc',
-  );
+  // admin/store/orders/search is provided by Views.
   $items['admin/store/orders/address_book'] = array(
     'title' => 'Select address',
     'page callback' => 'uc_order_address_book',
@@ -206,17 +191,8 @@ function uc_order_menu() {
     'type' => MENU_CALLBACK,
     'file' => 'uc_order.admin.inc',
   );
-  $items['user/%user/orders'] = array(
-    'title' => 'Orders',
-    'description' => 'View your order history.',
-    'page callback' => 'uc_order_history',
-    'page arguments' => array(1),
-    'access callback' => 'uc_order_can_view_order',
-    'access arguments' => array(1),
-    'type' => MENU_LOCAL_TASK,
-    'file' => 'uc_order.admin.inc',
-  );
-  $items['user/%user/order/%uc_order'] = array(
+  // user/%/orders is provided by Views.
+  $items['user/%user/orders/%uc_order'] = array(
     'title callback' => 'uc_order_page_title',
     'title arguments' => array(3),
     'description' => 'View order.',
@@ -224,18 +200,22 @@ function uc_order_menu() {
     'page arguments' => array(3, 'customer'),
     'access callback' => 'uc_order_can_view_order',
     'access arguments' => array(1, 3),
-    'type' => MENU_CALLBACK,
-    'file' => 'uc_order.admin.inc',
   );
-  $items['user/%user/order/%uc_order/invoice'] = array(
+  $items['user/%user/orders/%uc_order/invoice'] = array(
     'title' => 'View invoice',
     'description' => 'View order invoice.',
-    'page callback' => 'uc_order_view',
-    'page arguments' => array(3, 'invoice'),
+    'page callback' => 'uc_order_view_invoice',
+    'page arguments' => array(3),
     'access callback' => 'uc_order_can_view_order',
-    'access arguments' => array(1, 3),
-    'type' => MENU_CALLBACK,
-    'file' => 'uc_order.admin.inc',
+    'access arguments' => array(1, 3, TRUE),
+  );
+  $items['user/%user/orders/%uc_order/print'] = array(
+    'title' => 'Print invoice',
+    'description' => 'Print order invoice.',
+    'page callback' => 'uc_order_view_invoice',
+    'page arguments' => array(3, TRUE),
+    'access callback' => 'uc_order_can_view_order',
+    'access arguments' => array(1, 3, TRUE),
   );
 
   $items['admin/store/orders/%uc_order'] = array(
@@ -245,7 +225,6 @@ function uc_order_menu() {
     'page callback' => 'uc_order_view',
     'page arguments' => array(3, 'view'),
     'access arguments' => array('view all orders'),
-    'type' => MENU_CALLBACK,
     'file' => 'uc_order.admin.inc',
   );
   $items['admin/store/orders/%uc_order/view'] = array(
@@ -270,38 +249,13 @@ function uc_order_menu() {
     'type' => MENU_CALLBACK,
     'file' => 'uc_order.admin.inc',
   );
-  $items['admin/store/orders/%uc_order/products'] = array(
-    'title' => 'Products',
-    'page callback' => 'uc_order_edit_products',
-    'page arguments' => array(3),
-    'access arguments' => array('edit orders'),
-    'type' => MENU_CALLBACK,
-    'file' => 'uc_order.admin.inc',
-  );
-  $items['admin/store/orders/%uc_order/product_select'] = array(
-    'title' => 'Product select',
-    'page callback' => 'uc_order_load_product_select',
-    'page arguments' => array(3),
-    'access arguments' => array('edit orders'),
-    'type' => MENU_CALLBACK,
-    'file' => 'uc_order.admin.inc',
-  );
-  $items['admin/store/orders/%uc_order/add_product/%node'] = array(
-    'title' => 'Add product',
-    'page callback' => 'uc_order_add_product',
-    'page arguments' => array(3, 5),
-    'access arguments' => array('edit orders'),
-    'type' => MENU_CALLBACK,
-    'file' => 'uc_order.admin.inc',
-  );
   $items['admin/store/orders/%uc_order/invoice'] = array(
     'title' => 'Invoice',
-    'page callback' => 'uc_order_invoice',
+    'page callback' => 'uc_order_view_invoice',
     'page arguments' => array(3),
     'access arguments' => array('view all orders'),
     'type' => MENU_LOCAL_TASK,
     'weight' => 3,
-    'file' => 'uc_order.admin.inc',
   );
   $items['admin/store/orders/%uc_order/invoice/view'] = array(
     'title' => 'View invoice',
@@ -310,11 +264,10 @@ function uc_order_menu() {
   );
   $items['admin/store/orders/%uc_order/invoice/print'] = array(
     'title' => 'Printable invoice',
-    'page arguments' => array(3, 'print'),
+    'page arguments' => array(3, TRUE),
     'access arguments' => array('view all orders'),
     'type' => MENU_LOCAL_TASK,
     'weight' => -5,
-    'file' => 'uc_order.admin.inc',
   );
   $items['admin/store/orders/%uc_order/invoice/mail'] = array(
     'title' => 'Mail invoice',
@@ -329,7 +282,7 @@ function uc_order_menu() {
     'title' => 'Log',
     'page callback' => 'uc_order_log',
     'page arguments' => array(3),
-    'access callback' => 'uc_order_access_order_log',
+    'access arguments' => array('view all orders'),
     'type' => MENU_LOCAL_TASK,
     'weight' => 10,
     'file' => 'uc_order.admin.inc',
@@ -340,11 +293,37 @@ function uc_order_menu() {
     'page arguments' => array('uc_order_delete_confirm_form', 3),
     'access callback' => 'uc_order_can_delete',
     'access arguments' => array(3),
-    'type' => MENU_CALLBACK,
     'file' => 'uc_order.admin.inc',
   );
 
   return $items;
+}
+
+/**
+ * Implements hook_menu_alter().
+ */
+function uc_order_menu_alter(&$items) {
+  // Adjust the Field UI tabs on admin/store/settings/orders.
+  $items['admin/store/settings/orders/products/fields']['title'] = 'Ordered product fields';
+  $items['admin/store/settings/orders/products/fields']['weight'] = 3;
+  // Disable field display settings for ordered products, as we don't use this anywhere (yet).
+  $items['admin/store/settings/orders/products/display']['access callback'] = FALSE;
+}
+
+/**
+ * Implements hook_menu_local_tasks_alter().
+ */
+function uc_order_menu_local_tasks_alter(&$data, $router_item, $root_path) {
+  if ($root_path == 'admin/store/customers/orders/%') {
+    $uid = $router_item['page_arguments'][0];
+    $item = menu_get_item('admin/store/orders/create/' . $uid);
+    if ($item['access']) {
+      $data['actions']['output'][] = array(
+        '#theme' => 'menu_local_action',
+        '#link' => $item,
+      );
+    }
+  }
 }
 
 /**
@@ -355,30 +334,39 @@ function uc_order_page_title($order) {
 }
 
 /**
+ * Implements hook_admin_paths().
+ */
+function uc_order_admin_paths() {
+  return array(
+    // Don't show invoices with the admin theme, overlay, etc.
+    'admin/store/orders/*/invoice*' => FALSE,
+  );
+}
+
+/**
  * Implements hook_init().
  */
 function uc_order_init() {
-  drupal_add_css(drupal_get_path('module', 'uc_order') .'/uc_order.css');
-
-  if (arg(0) == 'admin' && arg(1) == 'store' && arg(2) == 'orders' && is_numeric(arg(3)) && arg(4) == 'edit') {
+  // Load uc_order.js on all order and customer admin pages.
+  if (arg(0) == 'admin' && arg(1) == 'store' && (arg(2) == 'orders' || arg(2) == 'customers')) {
     drupal_add_js(array(
       'ucURL' => array(
         'adminOrders' => url('admin/store/orders/'),
       ),
     ), 'setting');
-    drupal_add_js(drupal_get_path('module', 'uc_order') .'/uc_order.js');
+    drupal_add_js(drupal_get_path('module', 'uc_order') . '/uc_order.js');
   }
 }
 
 /**
  * Implements hook_theme().
  */
-function uc_order_theme() {
-  return array(
+function uc_order_theme($existing, $type, $theme, $path) {
+  $theme_hooks = array(
     'uc_order' => array(
-      'template' => 'uc_order',
-      'path' => drupal_get_path('module', 'uc_order') .'/templates',
-      'arguments' => array(
+      'template' => 'uc-order',
+      'path' => $path . '/templates',
+      'variables' => array(
         'order' => NULL,
         'op' => 'view',
         'template' => 'customer',
@@ -390,203 +378,214 @@ function uc_order_theme() {
         'shipping_method' => FALSE,
       ),
     ),
+    'uc_order_invoice_page' => array(
+      'variables' => array('content' => NULL),
+      'template' => 'uc_order-invoice-page',
+    ),
     'uc_order_state_table' => array(
-      'arguments' => array('form' => NULL),
+      'render element' => 'form',
+      'file' => 'uc_order.admin.inc',
     ),
     'uc_order_status_table' => array(
-      'arguments' => array('form' => NULL),
+      'render element' => 'form',
+      'file' => 'uc_order.admin.inc',
     ),
     'uc_order_edit_form' => array(
-      'arguments' => array('form' => NULL),
+      'render element' => 'form',
       'file' => 'uc_order.admin.inc',
     ),
-    'uc_order_edit_products_form' => array(
-      'arguments' => array('form' => NULL),
-      'file' => 'uc_order.admin.inc',
+    'uc_order_pane_line_items' => array(
+      'render element' => 'form',
+      'file' => 'uc_order.order_pane.inc',
     ),
-    'uc_order_remove_product' => array(
-      'arguments' => array('form' => NULL),
-      'file' => 'uc_order.admin.inc',
+  );
+
+  $theme_hooks += array(
+    'uc_order__customer' => array(
+      'template' => 'uc-order--customer',
+      'path' => $path . '/templates',
+      'variables' => $theme_hooks['uc_order']['variables'],
     ),
-    'uc_order_view_update_controls' => array(
-      'arguments' => array('form' => NULL),
+    'uc_order__admin' => array(
+      'template' => 'uc-order--admin',
+      'path' => $path . '/templates',
+      'variables' => $theme_hooks['uc_order']['variables'],
+    ),
+  );
+
+  return $theme_hooks;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function uc_order_permission() {
+  return array(
+    'administer order workflow' => array(
+      'title' => t('Administer order workflow'),
+    ),
+    'view customers' => array(
+      'title' => t('View customers'),
+    ),
+    'view own orders' => array(
+      'title' => t('View own orders'),
+    ),
+    'view own invoices' => array(
+      'title' => t('View own invoices'),
+    ),
+    'view all orders' => array(
+      'title' => t('View all orders'),
+    ),
+    'create orders' => array(
+      'title' => t('Create orders'),
+    ),
+    'edit orders' => array(
+      'title' => t('Edit orders'),
+    ),
+    'delete orders' => array(
+      'title' => t('Delete orders'),
+    ),
+    'unconditionally delete orders' => array(
+      'title' => t('Unconditionally delete orders'),
     ),
   );
 }
 
 /**
- * Implements hook_token_values(). (token.module)
- */
-function uc_order_token_values($type, $object = NULL) {
-  $values = array();
-
-  switch ($type) {
-    case 'order':
-      $order = $object;
-
-      $values['new-username'] = isset($order->data['new_user']['name']) ? check_plain($order->data['new_user']['name']) : '';
-      $values['new-password'] = isset($order->password) ? $order->password : t('Your password');
-      $values['order-id'] = $order->order_id;
-      $values['order-uid'] = $order->uid;
-      $values['order-url'] = url('user/'. $order->uid .'/order/'. $order->order_id, array('absolute' => TRUE));
-      $values['order-link'] = l($order->order_id, $values['order-url']);
-      $values['order-admin-url'] = url('admin/store/orders/'. $order->order_id, array('absolute' => TRUE));
-      $admin_url = url('admin/store/orders/'. $order->order_id, array('absolute' => TRUE));
-      $values['order-admin-link'] = l($order->order_id, $admin_url);
-      $subtotal = '';
-      $subtotal_raw = 0;
-      if (is_array($order->line_items)) {
-        foreach ($order->line_items as $key => $value) {
-          if ($value['type'] == 'subtotal') {
-            $context = array(
-              'revision' => 'formatted',
-              'type' => 'line_item',
-              'subject' => array(
-                'order' => $order,
-                'line_item' => $order->line_items[$key],
-              ),
-            );
-            $subtotal = uc_price($order->line_items[$key]['amount'], $context);
-
-            $context['revision'] = 'original';
-            $subtotal_raw = uc_price($order->line_items[$key]['amount'], $context);
-          }
-          if ($value['type'] == 'shipping' && !isset($ship_method)) {
-            $ship_method = $value['title'];
-          }
-        }
-      }
-      $values['order-subtotal'] = $subtotal;
-      $values['order-subtotal-raw'] = $subtotal_raw;
-      $context = array(
-        'revision' => 'formatted-original',
-        'type' => 'order_total',
-        'subject' => array(
-          'order' => $order,
-        ),
-      );
-      $values['order-total'] = uc_price($order->order_total, $context);
-
-      $context['revision'] = 'original';
-      $values['order-total-raw'] = uc_price($order->order_total, $context);
-
-      $values['order-email'] = check_plain($order->primary_email);
-      $values['order-email-raw'] = $order->primary_email;
-      $values['order-shipping-address'] = uc_order_address($order, 'delivery');
-      $values['order-shipping-phone'] = check_plain($order->delivery_phone);
-      $values['order-shipping-method'] = !isset($ship_method) ? t('Standard delivery') : $ship_method;
-      $values['order-billing-address'] = uc_order_address($order, 'billing');
-      $values['order-billing-phone'] = check_plain($order->billing_phone);
-      if (variable_get('uc_customer_list_address', 'billing') == 'shipping') {
-        $values['order-first-name'] = check_plain($order->delivery_first_name);
-        $values['order-last-name'] = check_plain($order->delivery_last_name);
-      }
-      else {
-        $values['order-first-name'] = check_plain($order->billing_first_name);
-        $values['order-last-name'] = check_plain($order->billing_last_name);
-      }
-      $result = db_result(db_query_range("SELECT message FROM {uc_order_comments} WHERE order_id = %d AND uid = 0 ORDER BY created DESC", $order->order_id, 0, 1));
-      $values['order-comments'] = empty($result) ? t('<i>No comments left.</i>') : check_plain($result);
-      $result = db_result(db_query_range("SELECT message FROM {uc_order_comments} WHERE order_id = %d AND uid > 0 ORDER BY created DESC", $order->order_id, 0, 1));
-      $values['order-last-comment'] = empty($result) ? t('<i>No comment found.</i>') : check_plain($result);
-      $values['order-last-comment-raw'] = empty($result) ? t('<i>No comment found.</i>') : $result;
-      $values['order-status'] = uc_order_status_data($order->order_status, 'title');
-      $values['order-date-created'] = format_date($order->created, 'small');
-      $values['order-date-modified'] = format_date($order->modified, 'small');
-      break;
-  }
-
-  return $values;
-}
-
-/**
- * Implements hook_token_list(). (token.module)
- */
-function uc_order_token_list($type = 'all') {
-  $tokens = array();
-
-  if ($type == 'order' || $type == 'ubercart' || $type == 'all') {
-    $tokens['order']['new-username'] = t('New username associated with an order if applicable.');
-    $tokens['order']['new-password'] = t('New password associated with an order if applicable.');
-    $tokens['order']['order-id'] = t('The order ID.');
-    $tokens['order']['order-uid'] = t('The user ID of the order.');
-    $tokens['order']['order-url'] = t('The URL to the order');
-    $tokens['order']['order-link'] = t('A link to the order using the order ID.');
-    $tokens['order']['order-admin-url'] = t('The URL to the admin view page using the order ID.');
-    $tokens['order']['order-admin-link'] = t('A link to the order admin view page using the order ID.');
-    $tokens['order']['order-subtotal'] = t('The formatted subtotal of products on an order.');
-    $tokens['order']['order-subtotal-raw'] = t('The numerical subtotal of products on an order.');
-    $tokens['order']['order-total'] = t('The formatted order total.');
-    $tokens['order']['order-total-raw'] = t('The numerical order total.');
-    $tokens['order']['order-email'] = t('The formatted primary e-mail address of the order.');
-    $tokens['order']['order-email-raw'] = t('The primary e-mail address of the order.');
-    $tokens['order']['order-shipping-address'] = t('The order shipping address.');
-    $tokens['order']['order-shipping-phone'] = t('The phone number for the shipping address.');
-    $tokens['order']['order-billing-address'] = t('The order billing address.');
-    $tokens['order']['order-billing-phone'] = t('The phone number for the billing address.');
-    $tokens['order']['order-shipping-method'] = t('The title of the first shipping line item.');
-    $tokens['order']['order-first-name'] = t('The first name associated with the order.');
-    $tokens['order']['order-last-name'] = t('The last name associated with the order.');
-    $tokens['order']['order-comments'] = t('Comments left by the customer.');
-    $tokens['order']['order-last-comment'] = t('Last order comment left by an administrator (not counting the order admin comments).');
-    $tokens['order']['order-last-comment-raw'] = t('Last order comment left by an administrator (not counting the order admin comments).  Use with caution: this is unescaped raw input.');
-    $tokens['order']['order-status'] = t('The current order status.');
-    $tokens['order']['order-date-created'] = t('The date and time when the order was created.');
-    $tokens['order']['order-date-modified'] = t('The date and time when the order was last modified.');
-  }
-
-  return $tokens;
-}
-
-/**
- * Implements hook_perm().
- */
-function uc_order_perm() {
-  return array('view own orders', 'view all orders', 'create orders', 'edit orders', 'delete orders', 'unconditionally delete orders', 'administer order workflow');
-}
-
-/**
  * Access callback for user/%user/orders*.
  */
-function uc_order_can_view_order($order_user, $order = NULL) {
+function uc_order_can_view_order($account, $order, $view_invoice = FALSE) {
   global $user;
 
-  $access = user_access('view all orders') || ($user->uid && user_access('view own orders') && $user->uid == $order_user->uid);
+  // Users with 'view all orders' are straightforward.
+  $access = user_access('view all orders');
 
-  if (!is_null($order)) {
-    $access = $access && $order_user->uid == $order->uid;
+  // If the user is the current user and is not anonymous, also allow the "own" permissions.
+  if ($user->uid && $user->uid == $account->uid) {
+    if ($view_invoice) {
+      $access = $access || user_access('view own invoices');
+    }
+    else {
+      $access = $access || user_access('view own orders');
+    }
   }
+
+  // The order must also be owned by the user specified in the URL.
+  $access = $access && $account->uid == $order->uid;
 
   return $access;
 }
 
 /**
- * Access callback for admin/store/orders/%uc_order/log.
+ * Implements hook_entity_info().
  */
-function uc_order_access_order_log() {
-  return user_access('view all orders') && variable_get('uc_order_logging', TRUE);
+function uc_order_entity_info() {
+  return array(
+    'uc_order' => array(
+      'label' => t('Order'),
+      'controller class' => 'UcOrderController',
+      'base table' => 'uc_orders',
+      'fieldable' => TRUE,
+      'entity keys' => array(
+        'id' => 'order_id',
+        'label' => t('Order'),
+      ),
+      'bundles' => array(
+        'uc_order' => array(
+          'label' => t('Order'),
+          'admin' => array(
+            'path' => 'admin/store/settings/orders',
+            'access arguments' => array('administer store'),
+          ),
+        ),
+      ),
+      'view modes' => array(
+        'view' => array(
+          'label' => t('Admin view'),
+        ),
+        'customer' => array(
+          'label' => t('Customer view'),
+        ),
+      ),
+      'uri callback' => 'uc_order_uri',
+      // Entity API callbacks.
+      'access callback'   => 'uc_order_order_entity_access',
+      'creation callback' => 'uc_order_create',
+      'save callback'     => 'uc_order_save',
+      'deletion callback' => 'uc_order_delete',
+    ),
+    'uc_order_product' => array(
+      'label' => t('Order product'),
+      'base table' => 'uc_order_products',
+      'controller class' => 'UcOrderProductController',
+      'metadata controller class' => 'UcOrderProductMetadataController',
+      'fieldable' => TRUE,
+      'module' => 'uc_order',
+      'entity keys' => array(
+        'id' => 'order_product_id',
+        'label' => t('Order product'),
+      ),
+      'bundles' => array(
+        'uc_order_product' => array(
+          'label' => t('Order product'),
+          'admin' => array(
+            'path' => 'admin/store/settings/orders/products',
+            'access arguments' => array('administer store'),
+          ),
+        ),
+      ),
+      'view modes' => array(
+        'full' => array(
+          'label' => t('Normal view'),
+        ),
+        'cart' => array(
+          'label' => t('Cart view'),
+        ),
+      ),
+      // Entity API callbacks.
+      'access callback'   => 'uc_order_order_product_access',
+    ),
+  );
 }
 
 /**
- * Implements hook_user().
+ * Implements hook_field_extra_fields().
  */
-function uc_order_user($op, &$edit, &$account, $category = NULL) {
-  global $user;
-  switch ($op) {
-    case 'view':
-      if ($user->uid && (($user->uid == $account->uid && user_access('view own orders')) || user_access('view all orders'))) {
-        $account->content['orders'] = array(
-          '#type' => 'user_profile_category',
-          '#weight' => -5,
-          '#title' => t('Orders'),
-          'link' => array(
-            '#type' => 'user_profile_item',
-            '#value' => l(t('Click here to view your order history.'), 'user/'. $account->uid .'/orders'),
-          ),
-        );
-      }
+function uc_order_field_extra_fields() {
+  $panes = module_invoke_all('uc_order_pane');
+  $extra = array();
 
-      break;
+  foreach ($panes as $id => $pane) {
+    $extra_field = array(
+      'label' => $pane['title'],
+      'description' => $pane['desc'],
+      'weight' => $pane['weight'],
+    );
+
+    if (in_array('edit', $pane['show'])) {
+      $extra['uc_order']['uc_order']['form'][$id] = $extra_field;
+    }
+
+    if (in_array('view', $pane['show']) || in_array('customer', $pane['show'])) {
+      $extra['uc_order']['uc_order']['display'][$id] = $extra_field;
+    }
+  }
+
+  return $extra;
+}
+
+/**
+ * Implements hook_user_view().
+ */
+function uc_order_user_view($account, $view_mode) {
+  global $user;
+
+  if ($user->uid && (($user->uid == $account->uid && user_access('view own orders')) || user_access('view all orders'))) {
+    $account->content['summary']['orders'] = array(
+      '#type' => 'user_profile_item',
+      '#title' => t('Orders'),
+      '#markup' => l(t('Click here to view your order history.'), 'user/' . $account->uid . '/orders'),
+    );
   }
 }
 
@@ -594,80 +593,118 @@ function uc_order_user($op, &$edit, &$account, $category = NULL) {
  * Implements hook_mail().
  */
 function uc_order_mail($key, &$message, $params) {
-  global $language;
-  if (isset($message['language'])) {
-    $original_global_language = drupal_clone($language);
-    $language = $message['language'];
-  }
+  $langcode = isset($message['language']) ? $message['language']->language : NULL;
 
   // Build the appropriate message parameters based on the e-mail key.
   switch ($key) {
     // Setup an e-mailed invoice.
     case 'invoice':
       $message['headers']['Content-Type'] = 'text/html; charset=UTF-8; format=flowed';
-      $message['subject'] = t('Your Order Invoice');
+      $message['subject'] = t('Your Order Invoice', array(), array('langcode' => $langcode));
       $message['from'] = uc_store_email_from();
-      $message['body'][] = theme('uc_order', $params['order'], 'admin-mail', variable_get('uc_cust_order_invoice_template', 'customer'));
+      $message['body'][] = theme('uc_order', array('order' => $params['order'], 'op' => 'admin-mail', 'template' => variable_get('uc_cust_order_invoice_template', 'customer')));
       break;
 
     // Setup a custom e-mail defined by an action on a predicate.
     case 'action-mail':
       // Assemble an email message from the conditional actions settings.
       $message['headers']['Content-Type'] = 'text/html; charset=UTF-8; format=flowed';
+      $message['from'] = $params['from'];
 
       // Perform token replacement on the subject and body.
-      $subject = token_replace_multiple($params['subject'], $params['replacements']);
-      $body = token_replace_multiple($params['message'], $params['replacements']);
+      $subject = token_replace($params['subject'], $params['replacements'], $langcode ? array('language' => $message['language']) : array());
+      $body = token_replace($params['message'], $params['replacements'], $langcode ? array('language' => $message['language']) : array());
 
       // Strip newline characters from e-mail subjects.
-      // TODO: Maybe drupal_mail_send() should do this? -LM
+      // @todo: Maybe drupal_mail_send() should do this?
       $message['subject'] = str_replace(array("\r\n", "\r", "\n"), ' ', $subject);
 
       // Apply an input format to the message body if specified.
       if (isset($params['format'])) {
-        $message['body'][] = check_markup($body, $params['format'], FALSE);
+        $message['body'] = explode("\n", check_markup($body, $params['format'], $langcode));
       }
       else {
-        $message['body'][] = $body;
+        $message['body'] = explode("\n", $body);
       }
 
       break;
   }
+}
 
-  if (isset($message['language'])) {
-    $language = $original_global_language;
+/**
+ * Implements hook_views_api().
+ */
+function uc_order_views_api() {
+  return array(
+    'api' => '2.0',
+    'path' => drupal_get_path('module', 'uc_order') . '/views',
+  );
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for views_exposed_form().
+ */
+function uc_order_form_views_exposed_form_alter(&$form, &$form_state) {
+  if (substr($form['#id'], 0, 29) == 'views-exposed-form-uc-orders-') {
+    $form['#submit'][] = 'uc_order_form_views_exposed_form_submit';
+
+    if ($form['#id'] == 'views-exposed-form-uc-orders-search' && !module_exists('date_views')) {
+      drupal_set_message(t('Download the <a href="@url">Date module</a> and enable Date Views to allow searching orders by date.', array('@url' => 'http://drupal.org/project/date')), 'warning');
+    }
   }
 }
 
-
-/*******************************************************************************
- * Hook Functions (Ubercart)
- ******************************************************************************/
+/**
+ * Redirects if an order ID was entered in the exposed field.
+ */
+function uc_order_form_views_exposed_form_submit($form, &$form_state) {
+  if (!empty($form_state['values']['order_id']) && uc_order_exists($form_state['values']['order_id'])) {
+    $form_state['redirect'] = 'admin/store/orders/' . $form_state['values']['order_id'];
+    $form_state['no_redirect'] = FALSE;
+  }
+}
 
 /**
- * Implements hook_order_pane().
+ * Implements hook_form_FORM_ID_alter() for uc_store_settings_form().
  */
-function uc_order_order_pane() {
-  $panes[] = array(
-    'id' => 'ship_to',
+function uc_order_form_uc_store_settings_form_alter(&$form, &$form_state) {
+  $form['display']['uc_order_capitalize_addresses'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Capitalize address on order screens'),
+    '#default_value' => variable_get('uc_order_capitalize_addresses', TRUE),
+  );
+}
+
+/**
+ * Implements hook_uc_order_pane().
+ */
+function uc_order_uc_order_pane() {
+  $panes['print_button'] = array(
+    'callback' => 'uc_order_pane_print_button',
+    'title' => t('Print button'),
+    'display title' => '',
+    'desc' => t("Button to open a printable invoice."),
+    'class' => 'abs-left',
+    'weight' => -10,
+    'show' => array('customer'),
+  );
+  $panes['ship_to'] = array(
     'callback' => 'uc_order_pane_ship_to',
     'title' => t('Ship to'),
     'desc' => t("Manage the order's shipping address and contact information."),
     'class' => 'pos-left',
     'weight' => 1,
-    'show' => array('view', 'edit', 'invoice', 'customer'),
+    'show' => array('view', 'edit', 'customer'),
   );
-  $panes[] = array(
-    'id' => 'bill_to',
+  $panes['bill_to'] = array(
     'callback' => 'uc_order_pane_bill_to',
     'title' => t('Bill to'),
     'desc' => t("Manage the order's billing address and contact information."),
     'class' => 'pos-left',
     'weight' => 2,
-    'show' => array('view', 'edit', 'invoice', 'customer'),
+    'show' => array('view', 'edit', 'customer'),
   );
-  $panes[] = array(
-    'id' => 'customer',
+  $panes['customer'] = array(
     'callback' => 'uc_order_pane_customer',
     'title' => t('Customer info'),
     'desc' => t("Manage the information for the customer's user account."),
@@ -675,35 +712,32 @@ function uc_order_order_pane() {
     'weight' => 3,
     'show' => array('view', 'edit'),
   );
-  $panes[] = array(
-    'id' => 'products',
+  $panes['products'] = array(
     'callback' => 'uc_order_pane_products',
     'title' => t('Products'),
     'desc' => t('Manage the products an order contains.'),
     'class' => 'abs-left',
     'weight' => 5,
-    'show' => array('view', 'edit', 'invoice', 'customer'),
+    'show' => array('view', 'edit', 'customer'),
   );
-  $panes[] = array(
-    'id' => 'line_items',
+  $panes['line_items'] = array(
     'callback' => 'uc_order_pane_line_items',
     'title' => t('Line items'),
+    'display title' => '',
     'desc' => t("View and modify an order's line items."),
     'class' => 'abs-left',
     'weight' => 6,
-    'show' => array('view', 'edit', 'invoice', 'customer'),
+    'show' => array('view', 'edit', 'customer'),
   );
-  $panes[] = array(
-    'id' => 'order_comments',
+  $panes['order_comments'] = array(
     'callback' => 'uc_order_pane_order_comments',
     'title' => t('Order comments'),
     'desc' => t('View the order comments, used for communicating with customers.'),
     'class' => 'abs-left',
     'weight' => 8,
-    'show' => array('view', 'invoice', 'customer'),
+    'show' => array('view', 'customer'),
   );
-  $panes[] = array(
-    'id' => 'admin_comments',
+  $panes['admin_comments'] = array(
     'callback' => 'uc_order_pane_admin_comments',
     'title' => t('Admin comments'),
     'desc' => t('View the admin comments, used for administrative notes and instructions.'),
@@ -711,8 +745,7 @@ function uc_order_order_pane() {
     'weight' => 9,
     'show' => array('view', 'edit'),
   );
-  $panes[] = array(
-    'id' => 'update',
+  $panes['update'] = array(
     'callback' => 'uc_order_pane_update',
     'title' => t('Update order'),
     'desc' => t("Update an order's status or add comments to an order."),
@@ -725,29 +758,25 @@ function uc_order_order_pane() {
 }
 
 /**
- * Implements hook_order_state().
+ * Implements hook_uc_order_state().
  */
-function uc_order_order_state() {
-  $states[] = array(
-    'id' => 'canceled',
+function uc_order_uc_order_state() {
+  $states['canceled'] = array(
     'title' => t('Canceled'),
     'weight' => -20,
     'scope' => 'specific',
   );
-  $states[] = array(
-    'id' => 'in_checkout',
+  $states['in_checkout'] = array(
     'title' => t('In checkout'),
     'weight' => -10,
     'scope' => 'specific',
   );
-  $states[] = array(
-    'id' => 'post_checkout',
+  $states['post_checkout'] = array(
     'title' => t('Post checkout'),
     'weight' => 0,
     'scope' => 'general',
   );
-  $states[] = array(
-    'id' => 'completed',
+  $states['completed'] = array(
     'title' => t('Completed'),
     'weight' => 20,
     'scope' => 'general',
@@ -757,19 +786,17 @@ function uc_order_order_state() {
 }
 
 /**
- * Implements hook_line_item().
+ * Implements hook_uc_line_item().
  */
-function uc_order_line_item() {
-  $items[] = array(
-    'id' => 'subtotal',
+function uc_order_uc_line_item() {
+  $items['subtotal'] = array(
     'title' => t('Subtotal'),
     'weight' => 0,
     'stored' => FALSE,
     'calculated' => FALSE,
     'callback' => 'uc_line_item_subtotal',
   );
-  $items[] = array(
-    'id' => 'generic',
+  $items['generic'] = array(
     'title' => t('Empty line'),
     'weight' => 2,
     'stored' => TRUE,
@@ -777,8 +804,7 @@ function uc_order_line_item() {
     'calculated' => TRUE,
     'callback' => 'uc_line_item_generic',
   );
-  $items[] = array(
-    'id' => 'total',
+  $items['total'] = array(
     'title' => t('Total'),
     'weight' => 15,
     'stored' => FALSE,
@@ -794,7 +820,7 @@ function uc_order_line_item() {
  * Implements hook_uc_message().
  */
 function uc_order_uc_message() {
-  $messages['order_update_email'] = t("[order-first-name] [order-last-name],\n\nYour order number [order-link] at [store-name] has been updated.\n\nOrder status: [order-status]\n\nOrder comment:\n[order-last-comment]\n\nBrowse to the following page to login to your account and view your order details:\n[site-login]\n\n\nThanks again,\n\n[store-name]\n[site-slogan]");
+  $messages['order_update_email'] = t("[order:first-name] [order:last-name],\n\nYour order number [order:link] at [store:name] has been updated.\n\nOrder status: [order:order-status]\n\nOrder comment:\n[order:last-comment]\n\nBrowse to the following page to login to your account and view your order details:\n[site:login-link]\n\n\nThanks again,\n\n[store:name]\n[site:slogan]");
 
   return $messages;
 }
@@ -806,429 +832,155 @@ function uc_order_uc_invoice_templates() {
   return array('admin', 'customer');
 }
 
-/*******************************************************************************
- * Callback Functions, Forms, and Tables
- ******************************************************************************/
-
 /**
- * Theme the order state table in the order workflow settings.
+ * Entity API "uri callback" for uc_order entity.
  *
- * @ingroup themeable
+ * @param $order
+ *   The order to return the URI for.
  */
-function theme_uc_order_state_table($form) {
-  $header = array(t('State'), t('Default order status'));
-  $rows = array();
-
-  foreach (element_children($form) as $state_id) {
-    $rows[] = array(
-      drupal_render($form[$state_id]['title']),
-      drupal_render($form[$state_id]['default']),
-    );
-  }
-
-  return theme('table', $header, $rows);
+function uc_order_uri($order) {
+  return array(
+    'path' => 'admin/store/orders/' . $order->order_id,
+  );
 }
 
 /**
- * Theme the order state table in the order workflow settings.
+ * Entity API "access callback" for uc_order entity.
+ *
+ * Checks order access for various operations.
+ *
+ * @param $op
+ *   The operation being performed. One of 'view', 'update', 'create' or
+ *   'delete'.
+ * @param $order
+ *   Optionally an order to check access for.
+ * @param $account
+ *   The user to check for. Leave it to NULL to check for the current user.
  */
-function theme_uc_order_status_table($form) {
-  $header = array(t('ID'), t('Title'), t('List position'), t('State'), t('Remove'));
-  $rows = array();
-  $create = '';
-
-  foreach (element_children($form) as $state_id) {
-    if ($state_id == 'create') {
-      $create = '<br />'. t('Use this button to create a custom order status: !create_form', array('!create_form' => drupal_render($form['create'])));
+function uc_order_order_entity_access($op, $order = NULL, $account = NULL) {
+  if ($op == 'delete') {
+    if (!empty($order)) {
+      return uc_order_can_delete($order, $account);
     }
     else {
-      $rows[] = array(
-        drupal_render($form[$state_id]['id']),
-        drupal_render($form[$state_id]['title']),
-        drupal_render($form[$state_id]['weight']),
-        drupal_render($form[$state_id]['state']),
-        array('data' => drupal_render($form[$state_id]['remove']), 'align' => 'center'),
-      );
+      return FALSE;
     }
   }
 
-  return theme('table', $header, $rows) . $create;
-}
-
-/**
- * Summarizes the order panes settings.
- *
- * @param $form
- *   The form passed from the summarizer
- * @param $panes
- *   An array of order panes
- * @param $parent_name
- *   The parent's displayed name
- * @param $parent_id
- *   The parent's machine-readable ID
- *
- * @return
- *   An array of summary information
- *
- * This function summarizes the order panes that have been defined for each
- * screen.  Everything is then organized under a series of parent nodes
- * correlating with the different screens, and specifying which panes are
- * enabled on which screen.
- */
-function _uc_order_panes_summarize($form, $panes, $parent_name, $parent_id) {
-  $items = array();
-
-  foreach ($panes as $name => $pane) {
-    $item[] = t('!title is !enabled.', array('!title' => $pane['uc_order_pane_'. $name .'_show_'. $parent_id]['#title'], '!enabled' => $pane['uc_order_pane_'. $name .'_show_'. $parent_id]['#default_value'] ? t('enabled') : t('disabled')));
+  if ($op == 'update') {
+    return user_access('edit orders', $account);
   }
 
-  $items[] = array(
-    'data' => t('Order panes on %screen screen:', array('%screen' => $parent_name)),
-    'children' => $item,
-  );
+  if ($op == 'create') {
+    return user_access('create orders', $account);
+  }
 
-  return $items;
-}
-
-/**
- * Form to input search parameters for orders.
- *
- * @ingroup forms
- * @see uc_order_search_form_submit()
- */
-function uc_order_search_form() {
-  $form['search'] = array(
-    '#type' => 'fieldset',
-    '#title' => t('Search options'),
-    '#collapsible' => TRUE,
-    '#collapsed' => arg(4) == 'results' ? TRUE : FALSE,
-  );
-
-  $form['search']['table1'] = array('#value' => '<table><tbody style="border: 0em;"><tr><td colspan="4">');
-
-  $form['search']['desc'] = array(
-    '#value' => '<div>'. t("Search for customers based on any of the following fields.  Use * as a wildcard to match any character.<br />For example, searching by last name for 's*' will return all customers whose last name starts with an s.<br />(<em>Leave a field empty to ignore it in the search.</em>)") .'</div>',
-  );
-
-  $form['search']['table2'] = array('#value' => '</td></tr><tr><td>');
-
-  $form['search']['billing_first_name'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Billing first name'),
-    '#default_value' => arg(5) != '0' ? arg(5) : '',
-    '#size' => 24,
-    '#maxlength' => 32,
-  );
-
-  $form['search']['table3'] = array('#value' => '</td><td>');
-
-  $form['search']['billing_last_name'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Billing last name'),
-    '#default_value' => arg(6) != '0' ? arg(6) : '',
-    '#size' => 24,
-    '#maxlength' => 32,
-  );
-
-  $form['search']['table4'] = array('#value' => '</td><td>');
-
-  $form['search']['billing_company'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Billing company'),
-    '#default_value' => arg(7) != '0' ? arg(7) : '',
-    '#size' => 24,
-    '#maxlength' => 96,
-  );
-
-  $form['search']['table5'] = array('#value' => '</td></tr><tr><td>');
-
-    $form['search']['shipping_first_name'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Shipping first name'),
-    '#default_value' => arg(8) != '0' ? arg(8) : '',
-    '#size' => 24,
-    '#maxlength' => 32,
-  );
-
-  $form['search']['table6'] = array('#value' => '</td><td>');
-
-  $form['search']['shipping_last_name'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Shipping last name'),
-    '#default_value' => arg(9) != '0' ? arg(9) : '',
-    '#size' => 24,
-    '#maxlength' => 32,
-  );
-
-  $form['search']['table7'] = array('#value' => '</td><td>');
-
-  $form['search']['shipping_company'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Shipping company'),
-    '#default_value' => arg(10) != '0' ? arg(10) : '',
-    '#size' => 24,
-    '#maxlength' => 96,
-  );
-
-  $form['search']['table8'] = array('#value' => '</td></tr><tr><td>');
-
-  $form['search']['use_dates'] = array(
-    '#type' => 'checkbox',
-    '#title' => t('Search using date range.'),
-    '#description' => t('Specify dates to the right if checked.'),
-    '#default_value' => arg(11) != 0 ? 1 : 0,
-  );
-
-  $form['search']['table9'] = array('#value' => '</td><td>');
-
-  $timestamp = arg(11) == 0 ? time() : arg(11);
-  $form['search']['start_date'] = array(
-    '#type' => 'date',
-    '#title' => t('Start date'),
-    '#default_value' => array('year' => format_date($timestamp, 'custom', 'Y'), 'month' => format_date($timestamp, 'custom', 'n'), 'day' => format_date($timestamp, 'custom', 'j'))
-  );
-
-  $form['search']['table10'] = array('#value' => '</td><td>');
-
-  $timestamp = arg(12) == 0 ? time() : arg(12);
-  $form['search']['end_date'] = array(
-    '#type' => 'date',
-    '#title' => t('End date'),
-    '#default_value' => array('year' => format_date($timestamp, 'custom', 'Y'), 'month' => format_date($timestamp, 'custom', 'n'), 'day' => format_date($timestamp, 'custom', 'j')),
-  );
-
-  $form['search']['table11'] = array('#value' => '</td></tr><tr><td colspan="3">');
-
-  $form['search']['submit'] = array(
-    '#type' => 'submit',
-    '#value' => t('Search'),
-  );
-
-  $form['search']['table12'] = array('#value' => '</td></tr></tbody></table>');
-
-  return $form;
-}
-
-/**
- * @see uc_order_search_form()
- */
-function uc_order_search_form_submit($form, &$form_state) {
-  $args = array();
-  $keys = array(
-    'billing_first_name',
-    'billing_last_name',
-    'billing_company',
-    'shipping_first_name',
-    'shipping_last_name',
-    'shipping_company',
-  );
-
-  foreach ($keys as $key) {
-    if (strlen(trim($form_state['values'][$key])) == 0) {
-      $args[] = '0';
+  if ($op == 'view') {
+    if (user_access('view all orders', $account)) {
+      return TRUE;
     }
-    else {
-      $args[] = strtolower(trim($form_state['values'][$key]));
-    }
-  }
 
-  if ($form_state['values']['use_dates']) {
-    $args[] = mktime(0, 0, 0, $form_state['values']['start_date']['month'], $form_state['values']['start_date']['day'], $form_state['values']['start_date']['year']);
-    $args[] = mktime(23, 59, 59, $form_state['values']['end_date']['month'], $form_state['values']['end_date']['day'], $form_state['values']['end_date']['year']);
+    return (!empty($order) && $order->uid == $account->uid && user_access('view own orders', $account));
   }
-  else {
-    $args[] = '0';
-    $args[] = '0';
-  }
-
-  drupal_goto('admin/store/orders/search/results/'. implode('/', $args));
 }
 
 /**
- * TAPIr table for products pane on the order edit page.
+ * Generates and saves a new order.
  *
- * @see uc_order_edit_products_form()
- */
-function op_products_edit_table() {
-  $table = array(
-    '#type' => 'tapir_table',
-    '#tree' => TRUE,
-    '#attributes' => array('class' => 'order-pane-table'),
-  );
-
-  $table['#columns']['remove'] = array(
-    'cell' => t('Remove'),
-    'weight' => 0,
-  );
-  $table['#columns']['qty'] = array(
-    'cell' => t('Qty'),
-    'weight' => 1,
-  );
-  $table['#columns']['title'] = array(
-    'cell' => t('Name'),
-    'weight' => 2,
-  );
-  $table['#columns']['model'] = array(
-    'cell' => t('SKU'),
-    'weight' => 4,
-  );
-  $table['#columns']['weight'] = array(
-    'cell' => t('Weight'),
-    'weight' => 5,
-  );
-  $table['#columns']['cost'] = array(
-    'cell' => t('Cost'),
-    'weight' => 6,
-  );
-  $table['#columns']['price'] = array(
-    'cell' => t('Price'),
-    'weight' => 7,
-  );
-
-  return $table;
-}
-
-
-/*******************************************************************************
- * Module and Helper Functions
- ******************************************************************************/
-
-/**
- * Generate a new order for user $uid.
+ * @param $uid
+ *   The user ID to assign the order to.
+ * @param $state
+ *   The initial state of the order.
  */
 function uc_order_new($uid = 0, $state = 'in_checkout') {
-  $order = new UcOrder();
+  $order = new UcOrder($uid, $state);
 
-  if ($uid > 0) {
-    $user = user_load(array('uid' => $uid));
-    $email = $user->mail;
-    $order->primary_email = $email;
-  }
-
-  $order->uid = $uid;
-  $order->order_status = uc_order_state_default($state);
-  $order->created = time();
-  $order->modified = time();
+  module_invoke_all('entity_presave', $order, 'uc_order');
 
   drupal_write_record('uc_orders', $order);
 
   uc_order_module_invoke('new', $order, NULL);
+  module_invoke_all('entity_insert', $order, 'uc_order');
 
   return $order;
 }
 
 /**
- * Save an order to the database.
+ * Entity API "creation callback" for uc_order entity.
+ *
+ * @param $values
+ *   A set of default values for the order.
+ */
+function uc_order_create($values, $entity_type) {
+  $order = new UcOrder();
+  foreach ($values as $key => $value) {
+    $order->$key = $value;
+  }
+
+  module_invoke_all('entity_presave', $order, 'uc_order');
+
+  drupal_write_record('uc_orders', $order);
+
+  uc_order_module_invoke('new', $order, NULL);
+  module_invoke_all('entity_insert', $order, 'uc_order');
+
+  return $order;
+}
+
+/**
+ * Entity API "save callback" for uc_order entity.
+ *
+ * Saves an order to the database.
  */
 function uc_order_save($order) {
-  if (is_null($order->order_id) || intval($order->order_id) == 0) {
-    return FALSE;
-  }
+  $transaction = db_transaction();
 
-  uc_order_module_invoke('presave', $order, NULL);
-
-  $order->order_total = uc_order_get_total($order);
-  $order->product_count = uc_order_get_product_count($order);
-  if (is_null($order->delivery_country) || $order->delivery_country == 0) {
-    $order->delivery_country = variable_get('uc_store_country', 840);
-  }
-  if (is_null($order->billing_country) || $order->billing_country == 0) {
-    $order->billing_country = variable_get('uc_store_country', 840);
-  }
-  $order->host = ip_address();
-  $order->modified = time();
-
-  drupal_write_record('uc_orders', $order, 'order_id');
-
-  if (isset($order->products) && is_array($order->products)) {
-    foreach ($order->products as $product) {
-      drupal_alter('order_product', $product, $order);
-      uc_order_product_save($order->order_id, $product);
+  try {
+    if (is_null($order->order_id) || intval($order->order_id) == 0) {
+      return FALSE;
     }
-  }
 
-  uc_order_module_invoke('save', $order, NULL);
+    field_attach_presave('uc_order', $order);
+
+    $order->order_total = uc_order_get_total($order);
+    $order->product_count = uc_order_get_product_count($order);
+    if (is_null($order->delivery_country) || $order->delivery_country == 0) {
+      $order->delivery_country = variable_get('uc_store_country', 840);
+    }
+    if (is_null($order->billing_country) || $order->billing_country == 0) {
+      $order->billing_country = variable_get('uc_store_country', 840);
+    }
+    $order->host = ip_address();
+    $order->modified = REQUEST_TIME;
+
+    uc_order_module_invoke('presave', $order, NULL);
+    module_invoke_all('entity_presave', $order, 'uc_order');
+
+    drupal_write_record('uc_orders', $order, 'order_id');
+
+    if (is_array($order->products)) {
+      foreach ($order->products as $product) {
+        drupal_alter('uc_order_product', $product, $order);
+        uc_order_product_save($order->order_id, $product);
+      }
+    }
+
+    field_attach_update('uc_order', $order);
+
+    uc_order_module_invoke('save', $order, NULL);
+    module_invoke_all('entity_update', $order, 'uc_order');
+    $order->order_total = uc_order_get_total($order);
+  }
+  catch (Exception $e) {
+    $transaction->rollback('uc_order');
+    watchdog_exception('uc_order', $e);
+    throw $e;
+  }
 }
 
 /**
- * Load an order user if available, else, load the current user.
- */
-function uc_order_user_load($order) {
-  if (!empty($order->uid)) {
-    $user = user_load($order->uid);
-  }
-  else {
-    global $user;
-  }
-  return $user;
-}
-
-/**
- * Save a product to an order.
- */
-function uc_order_product_save($order_id, $product) {
-  // Product kits, particularly, shouldn't actually be added to an order,
-  // but instead they cause other products to be added.
-  if (isset($product->skip_save) && $product->skip_save == TRUE) {
-    return;
-  }
-
-  // Update if there is an order_product_id, insert if there isn't.
-  $key = empty($product->order_product_id) ? NULL : 'order_product_id';
-  // @TODO order_id should be in the object by this point.
-  $product->order_id = $order_id;
-  return drupal_write_record('uc_order_products', $product, $key);
-}
-
-/**
- * Load an order from the database.
- */
-function uc_order_load($order_id) {
-  if (is_null($order_id) || $order_id < 1) {
-    return FALSE;
-  }
-
-  $result = db_query("SELECT * FROM {uc_orders} WHERE order_id = %d", $order_id);
-
-  $order = db_fetch_object($result);
-  if ($order == FALSE) {
-    return FALSE;
-  }
-
-  $order->data = unserialize($order->data);
-
-  $result = db_query("SELECT * FROM {uc_order_products} WHERE order_id = %d ORDER BY order_product_id", $order_id);
-  $order->products = array();
-  while ($product = db_fetch_object($result)) {
-    $product->data = unserialize($product->data);
-    $product->order_uid = $order->uid;
-    $order->products[] = $product;
-  }
-
-  uc_order_module_invoke('load', $order, NULL);
-
-  // Load line items... has to be last after everything has been loaded.
-  $order->line_items = uc_order_load_line_items($order, TRUE);
-
-  // Merge it with the defaultish line items.
-  $order->line_items = array_merge($order->line_items, uc_order_load_line_items($order, FALSE));
-  usort($order->line_items, 'uc_weight_sort');
-
-  // Make sure the total still matches up...
-  if (($total = uc_order_get_total($order)) !== $order->order_total) {
-    db_query("UPDATE {uc_orders} SET order_total = %f WHERE order_id = %d", $total, $order->order_id);
-    $order->order_total = $total;
-  }
-
-  if (($count = uc_order_get_product_count($order)) !== $order->product_count) {
-    db_query("UPDATE {uc_orders} SET product_count = %d WHERE order_id = %d", $count, $order->order_id);
-    $order->product_count = $count;
-  }
-
-  return $order;
-}
-
-/**
+ * Entity API "deletion callback" for uc_order entity.
+ *
  * Deletes an order and tells other modules to do the same.
  *
  * @param $order_id
@@ -1241,15 +993,31 @@ function uc_order_delete($order_id) {
 
   // Perform the operations if we're deleting a valid order.
   if ($order !== FALSE) {
-    ca_pull_trigger('uc_order_delete', $order);
+    rules_invoke_event('uc_order_delete', $order);
     uc_order_module_invoke('delete', $order, NULL);
+    module_invoke_all('entity_delete', $order, 'uc_order');
 
     // Delete data from the appropriate Ubercart order tables.
-    db_query("DELETE FROM {uc_orders} WHERE order_id = %d", $order_id);
-    db_query("DELETE FROM {uc_order_products} WHERE order_id = %d", $order_id);
-    db_query("DELETE FROM {uc_order_comments} WHERE order_id = %d", $order_id);
-    db_query("DELETE FROM {uc_order_admin_comments} WHERE order_id = %d", $order_id);
-    db_query("DELETE FROM {uc_order_log} WHERE order_id = %d", $order_id);
+    db_delete('uc_orders')
+      ->condition('order_id', $order_id)
+      ->execute();
+    $efq = new EntityFieldQuery();
+    $result = $efq->entityCondition('entity_type', 'uc_order_product')
+      ->propertyCondition('order_id', $order->order_id)
+      ->execute();
+    if (!empty($result['uc_order_product'])) {
+      $product_ids = array_keys($result['uc_order_product']);
+      uc_order_product_delete_multiple($product_ids);
+    }
+    db_delete('uc_order_comments')
+      ->condition('order_id', $order_id)
+      ->execute();
+    db_delete('uc_order_admin_comments')
+      ->condition('order_id', $order_id)
+      ->execute();
+    db_delete('uc_order_log')
+      ->condition('order_id', $order_id)
+      ->execute();
 
     // Delete line items for the order.
     uc_order_delete_line_item($order_id, TRUE);
@@ -1260,37 +1028,322 @@ function uc_order_delete($order_id) {
 }
 
 /**
- * Return an array of comments or admin comments for an order.
+ * Entity API "access callback" for uc_order_product entity.
+ *
+ * Checks order product access for various operations.
+ *
+ * @param $op
+ *   The operation being performed. One of 'view', 'update', 'create' or
+ *   'delete'.
+ * @param $order
+ *   Optionally an order to check access for.
+ * @param $account
+ *   The user to check for. Leave it to NULL to check for the current user.
+ */
+function uc_order_order_product_access($op, $product = NULL, $account = NULL) {
+  if (isset($product) && $product->order_id) {
+    $order = uc_order_load($product->order_id);
+    return uc_order_order_entity_access($op, $order, $account);
+  }
+
+  return FALSE;
+}
+
+/**
+ * Save a product to an order.
+ */
+function uc_order_product_save($order_id, $product) {
+  $product->order_id = $order_id;
+  return entity_save('uc_order_product', $product);
+}
+
+/**
+ * API wrapper for uc_order_product_save().
+ *
+ * @todo: Change the signature for uc_order_product_save() to this one.
+ */
+function uc_order_product_entity_save($product) {
+  return uc_order_product_save($product->order_id, $product);
+}
+
+/**
+ * Remove a single product line from an order.
+ *
+ * @param integer $order_product_id
+ *   Ordered product ID of product to remove.
+ */
+function uc_order_product_delete($order_product_id) {
+  return uc_order_product_delete_multiple(array($order_product_id));
+}
+
+/**
+ * Remove multiple product lines from an order.
+ *
+ * @param array $order_product_ids
+ *   List of ordered product IDs of products to remove.
+ */
+function uc_order_product_delete_multiple($order_product_ids) {
+  return entity_delete_multiple('uc_order_product', $order_product_ids);
+}
+
+/**
+ * Load a single ordered product entity.
+ *
+ * @param integer $opid
+ *   The ID of the ordered product entity.
+ * @param boolean $reset
+ *   Whether to reset the internal cache for ordered product IDs. Defaults to
+ *   FALSE.
+ *
+ * @return object
+ *   The ordered product entity matching $opid.
+ */
+function uc_order_product_load($opid, $reset = FALSE) {
+  $products = uc_order_product_load_multiple(array($opid), $reset);
+  return reset($products);
+}
+
+/**
+ * Load multiple ordered product entities.
+ *
+ * @param array $opids
+ *   Array of ordered product IDs of products to load.  Default is the empty
+ *   array, which loads all ordered products.
+ * @param boolean $reset
+ *   Whether to reset the internal cache for ordered product IDs. Defaults to
+ *   FALSE.
+ *
+ * @return array
+ *   An array of ordered product entities matching $opids, indexed by
+ *   ID.
+ */
+function uc_order_product_load_multiple($opids = array(), $reset = FALSE) {
+  return entity_load('uc_order_product', $opids, array(), $reset);
+}
+
+/**
+ * Generate an array for rendering the multiple order products.
+ *
+ * Order products being viewed are generally expected to be fully-loaded entity
+ * objects, thus have their name or id key set. However, it is possible to
+ * view a single entity without any id, e.g. for generating a preview during
+ * creation.
+ *
+ * @param array $order_products
+ *   The array of order product to render.
+ * @param $view_mode
+ *    A view mode as used by this entity type, e.g. 'full', 'teaser'...
+ * @param $langcode
+ *   (optional) A language code to use for rendering. Defaults to the global
+ *   content language of the current request.
+ * @param $page
+ *   (optional) If set will control if the entity is rendered: if TRUE
+ *   the entity will be rendered without its title, so that it can be embedded
+ *   in another context. If FALSE the entity will be displayed with its title
+ *   in a mode suitable for lists.
+ *   If unset, the page mode will be enabled if the current path is the URI
+ *   of the entity, as returned by entity_uri().
+ *
+ * @return
+ *   The renderable array, keyed by the entity type and by entity identifiers,
+ *   for which the entity name is used if existing - see entity_id(). If there
+ *   is no information on how to view an entity, FALSE is returned.
+ */
+function uc_order_product_view_multiple($order_products, $view_mode = 'full', $langcode = NULL, $page = NULL) {
+  return entity_view('uc_order_product', $order_products, $view_mode, $langcode, $page);
+}
+
+/**
+ * Merge fields from their associated nodes into a set of order products.
+ *
+ * @param $products
+ *   An array of order_products.
+ * @param $published
+ *   TRUE to load only published nodes, FALSE to load all nodes.
+ *
+ * @return
+ *   TRUE if the merge was successful for all products in the set. FALSE
+ *   otherwise (i.e. if the associated product node no longer exists).
+ */
+function uc_order_product_revive($products, $published = TRUE) {
+  // Allow invocation for a single product.
+  if (!is_array($products)) {
+    $products = array($products);
+  }
+
+  // Load the nodes associated with each order product.
+  $nids = array();
+  foreach ($products as $product) {
+    $nids[] = $product->nid;
+  }
+  $nodes = node_load_multiple($nids);
+
+  // Merge in fields from any nodes that still exist (but don't override order
+  // product fields that are already set).
+  $return = TRUE;
+  foreach ($products as &$product) {
+    if (!empty($nodes[$product->nid]) && (!$published || $nodes[$product->nid]->status == NODE_PUBLISHED)) {
+      foreach ($nodes[$product->nid] as $key => $value) {
+        if (!isset($product->$key)) {
+          $product->$key = $value;
+        }
+      }
+      // Order products are always variants.
+      $product->variant = TRUE;
+    }
+    else {
+      $return = FALSE;
+    }
+  }
+
+  return $return;
+}
+
+/**
+ * Displays the order view screen, constructed via hook_uc_order_pane().
+ */
+function uc_order_view($order, $view_mode = 'full') {
+  $order->content['#view_mode'] = $view_mode;
+
+  // Build fields content.
+  // In case of a multiple view, node_view_multiple() already ran the
+  // 'prepare_view' step. An internal flag prevents the operation from running
+  // twice.
+  field_attach_prepare_view('uc_order', array($order->order_id => $order), $view_mode);
+  entity_prepare_view('uc_order', array($order->order_id => $order));
+  $order->content += field_attach_view('uc_order', $order, $view_mode);
+
+  $panes = _uc_order_pane_list($view_mode);
+  foreach ($panes as $pane) {
+    if (in_array($view_mode, $pane['show'])) {
+      $func = $pane['callback'];
+      if (function_exists($func) && ($contents = $func($view_mode, $order)) != NULL) {
+        $title = isset($pane['display title']) ? $pane['display title'] : $pane['title'];
+        if ($title) {
+          $title = array(
+            '#markup' => $pane['title'] . ':',
+            '#prefix' => '<div class="order-pane-title">',
+            '#suffix' => '</div>',
+          );
+        }
+        else {
+          $title = array();
+        }
+
+        $order->content[$pane['id']] = array(
+          '#prefix' => '<div class="order-pane ' . $pane['class'] . '" id="order-pane-' . $pane['id'] . '">',
+          '#suffix' => '</div>',
+        );
+
+        $order->content[$pane['id']]['title'] = $title;
+        $order->content[$pane['id']]['pane'] = $contents;
+      }
+    }
+  }
+
+  return $order->content;
+}
+
+/**
+ * Displays an order invoice.
+ */
+function uc_order_view_invoice($order, $print = FALSE) {
+  $build = array(
+    '#theme' => 'uc_order',
+    '#order' => $order,
+    '#op' => $print ? 'print' : 'view',
+    '#template' => variable_get('uc_cust_order_invoice_template', 'customer'),
+  );
+
+  if ($print) {
+    drupal_add_http_header('Content-Type', 'text/html; charset=utf-8');
+    print theme('uc_order_invoice_page', array('content' => drupal_render($build)));
+    exit();
+  }
+
+  return $build;
+}
+
+/**
+ * Loads one order entity from the database.
+ */
+function uc_order_load($order_id, $reset = FALSE) {
+  if (is_null($order_id) || $order_id < 1) {
+    return FALSE;
+  }
+
+  $orders = uc_order_load_multiple(array($order_id), array(), $reset);
+
+  return $orders ? reset($orders) : FALSE;
+}
+
+/**
+ * Loads one or more order entities from the database.
+ *
+ * @param $ids
+ *   An array of order IDs.
+ * @param $conditions
+ *   An array of conditions on the {uc_orders} table in the form
+ *  'field' => $value.
+ *
+ * @return
+ *   An array of order objects indexed by order_id.
+ */
+function uc_order_load_multiple($ids, $conditions = array(), $reset = FALSE) {
+  return entity_load('uc_order', $ids, $conditions, $reset);
+}
+
+/**
+ * Returns an array of comments or admin comments for an order.
  */
 function uc_order_comments_load($order_id, $admin = FALSE) {
-  $comments = array();
-  $join = '';
+  $table = $admin ? 'uc_order_admin_comments' : 'uc_order_comments';
+  $query = db_select($table, 'oc')
+    ->fields('oc')
+    ->condition('order_id', $order_id)
+    ->orderBy('oc.created')
+    ->orderBy('oc.comment_id');
 
   if (!$admin) {
-    $join = " LEFT JOIN {uc_order_statuses} AS os ON oc.order_status = os.order_status_id";
+    $query->leftJoin('uc_order_statuses', 'os', 'oc.order_status = os.order_status_id');
+    $query->fields('os');
   }
-  $result = db_query("SELECT * FROM {". (($admin) ? 'uc_order_admin_comments' : 'uc_order_comments') ."} AS oc". $join ." WHERE oc.order_id = %d ORDER BY oc.created, oc.comment_id", $order_id);
-  while ($comment = db_fetch_object($result)) {
-    $comments[] = $comment;
-  }
+
+  $comments = $query->execute()->fetchAll();
 
   return $comments;
 }
 
 /**
- * Insert a comment, $type being either 'order' or 'admin'
+ * Inserts a comment, $type being either 'order' or 'admin'.
  */
 function uc_order_comment_save($order_id, $uid, $message, $type = 'admin', $status = 'pending', $notify = FALSE) {
   if ($type == 'admin') {
-    db_query("INSERT INTO {uc_order_admin_comments} (order_id, uid, message, created) VALUES (%d, %d, '%s', %d)", $order_id, $uid, $message, time());
+    db_insert('uc_order_admin_comments')
+      ->fields(array(
+        'order_id' => $order_id,
+        'uid' => $uid,
+        'message' => $message,
+        'created' => REQUEST_TIME,
+      ))
+      ->execute();
   }
   elseif ($type == 'order') {
-    db_query("INSERT INTO {uc_order_comments} (order_id, uid, message, order_status, notified, created) VALUES (%d, %d, '%s', '%s', %d, %d)", $order_id, $uid, $message, $status, $notify ? 1 : 0, time());
+    db_insert('uc_order_comments')
+      ->fields(array(
+        'order_id' => $order_id,
+        'uid' => $uid,
+        'message' => $message,
+        'order_status' => $status,
+        'notified' => $notify ? 1 : 0,
+        'created' => REQUEST_TIME,
+      ))
+      ->execute();
   }
 }
 
 /**
- * Return an array containing an order's line items ordered by weight.
+ * Returns an array containing an order's line items ordered by weight.
  *
  * @param $order
  *   An order object whose line items are to be loaded.
@@ -1299,53 +1352,53 @@ function uc_order_comment_save($order_id, $uid, $message, $type = 'admin', $stat
  *   If FALSE, only line items not stored in the database are loaded.
  *   This distinction is made because the non-stored line items may depend on
  *   the amounts of all of the stored line items.
+ *
  * @return
  *   An array of line items, which are arrays containing the following keys:
- *   - line_item_id
- *   - type
- *   - title
- *   - amount
- *   - weight
+ *   - line_item_id: The line item id.
+ *   - type: The line item type.
+ *   - title: The line item title.
+ *   - amount: The line item amount.
+ *   - weight: The line item weight.
  */
-function uc_order_load_line_items($order, $stored) {
+function uc_order_load_line_items($order) {
   $items = array();
 
-  if ($stored) {
-    $result = db_query("SELECT * FROM {uc_order_line_items} WHERE order_id = %d", $order->order_id);
-    while ($row = db_fetch_object($result)) {
-      $items[] = array(
-        'line_item_id' => $row->line_item_id,
-        'type' => $row->type,
-        'title' => $row->title,
-        'amount' => $row->amount,
-        'weight' => $row->weight,
-        'data' => unserialize($row->data),
-      );
-    }
+  $result = db_query("SELECT * FROM {uc_order_line_items} WHERE order_id = :id", array(':id' => $order->order_id));
+  foreach ($result as $row) {
+    $item = array(
+      'line_item_id' => $row->line_item_id,
+      'type' => $row->type,
+      'title' => $row->title,
+      'amount' => $row->amount,
+      'weight' => $row->weight,
+      'data' => unserialize($row->data),
+    );
+    drupal_alter('uc_line_item', $item, $order);
+    $items[] = $item;
   }
-  else {
-    foreach (_line_item_list() as $type) {
-      if ($type['stored'] == FALSE
-          && (isset($type['callback']) && function_exists($type['callback']))
-          && (!isset($type['display_only']) || $type['display_only'] == FALSE)) {
-        $result = $type['callback']('load', $order);
-        if ($result !== FALSE && is_array($result)) {
-          foreach ($result as $line) {
-            $items[] = array(
-              'line_item_id' => $line['id'],
-              'type' => $type['id'],
-              'title' => $line['title'],
-              'amount' => $line['amount'],
-              'weight' => isset($line['weight']) ? $line['weight'] : $type['weight'],
-              'data' => isset($line['data']) ? $line['data'] : array(),
-            );
-          }
+
+  // Set stored line items so hook_uc_line_item_alter() can access them.
+  $order->line_items = $items;
+
+  foreach (_uc_line_item_list() as $type) {
+    if ($type['stored'] == FALSE && empty($type['display_only']) && !empty($type['callback']) && function_exists($type['callback'])) {
+      $result = $type['callback']('load', $order);
+      if ($result !== FALSE && is_array($result)) {
+        foreach ($result as $line) {
+          $item = array(
+            'line_item_id' => $line['id'],
+            'type' => $type['id'],
+            'title' => $line['title'],
+            'amount' => $line['amount'],
+            'weight' => isset($line['weight']) ? $line['weight'] : $type['weight'],
+            'data' => isset($line['data']) ? $line['data'] : array(),
+          );
+          drupal_alter('uc_line_item', $item, $order);
+          $items[] = $item;
         }
       }
     }
-  }
-  foreach ($items as &$item) {
-    drupal_alter('line_item', $item, $order);
   }
 
   usort($items, 'uc_weight_sort');
@@ -1354,12 +1407,57 @@ function uc_order_load_line_items($order, $stored) {
 }
 
 /**
- * Update an order's status as long as no one objects.
+ * Returns an order's line items ordered by weight, prepared for display.
+ *
+ * @param $order
+ *   An order object whose line items are to be loaded.
+ *
+ * @return
+ *   An array of line items, which are arrays containing the following keys:
+ *   - type: The line item type.
+ *   - title: The line item title.
+ *   - amount: The line item amount.
+ *   - weight: The line item weight.
+ */
+function uc_order_load_line_items_display($order) {
+  $temp = clone $order;
+  $line_items = uc_order_load_line_items($order);
+  $temp->line_items = &$line_items;
+
+  $items = _uc_line_item_list();
+  foreach ($items as $item) {
+    if (!empty($item['display_only'])) {
+      $result = $item['callback']('display', $temp);
+      if (is_array($result)) {
+        foreach ($result as $line) {
+          $line_items[] = array(
+            'type' => $item['id'],
+            'title' => $line['title'],
+            'amount' => $line['amount'],
+            'weight' => isset($line['weight']) ? $line['weight'] : $item['weight'],
+            'data' => isset($line['data']) ? $line['data'] : array(),
+          );
+        }
+      }
+    }
+  }
+  foreach ($line_items as &$item) {
+    $item['formatted_amount'] = uc_currency_format($item['amount']);
+  }
+
+  usort($line_items, 'uc_weight_sort');
+
+  return $line_items;
+}
+
+/**
+ * Updates an order's status as long as no one objects.
  *
  * @param $order_id
  *   The ID of the order to be updated.
  * @param $status
  *   The new status ID we want to move the order to.
+ *
  * @return
  *   TRUE or FALSE depending on the success of the update.
  */
@@ -1379,8 +1477,8 @@ function uc_order_update_status($order_id, $status) {
     }
 
     // Return FALSE if any module says the update is not good to go.
-    foreach (module_list() as $module) {
-      $function = $module .'_order';
+    foreach (module_implements('uc_order') as $module) {
+      $function = $module . '_uc_order';
       // $order must be passed by reference.
       if (function_exists($function) && $function('can_update', $order, $status) === FALSE) {
         return FALSE;
@@ -1388,14 +1486,20 @@ function uc_order_update_status($order_id, $status) {
     }
 
     // Otherwise perform the update and log the changes.
-    db_query("UPDATE {uc_orders} SET order_status = '%s', modified = %d WHERE order_id = %d", $status, time(), $order_id);
+    db_update('uc_orders')
+      ->fields(array(
+        'order_status' => $status,
+        'modified' => REQUEST_TIME,
+      ))
+      ->condition('order_id', $order_id)
+      ->execute();
     uc_order_module_invoke('update', $order, $status);
 
     $change = array(t('Order status') => array('old' => uc_order_status_data($order->order_status, 'title'), 'new' => uc_order_status_data($status, 'title')));
     uc_order_log_changes($order->order_id, $change);
 
-    $updated = uc_order_load($order_id);
-    ca_pull_trigger('uc_order_status_update', $order, $updated);
+    $updated = uc_order_load($order_id, TRUE);
+    rules_invoke_event('uc_order_status_update', $order, $updated);
 
     return TRUE;
   }
@@ -1405,17 +1509,19 @@ function uc_order_update_status($order_id, $status) {
 }
 
 /**
- * Log changes made to an order.
+ * Logs changes made to an order.
  *
  * @param $order_id
  *   The ID of the order that was changed.
  * @param $changes
  *   An array of changes. Two formats are allowed:
- *   - Keys being the name of the field changed and the values being associative
- *     arrays with the keys 'old' and 'new' to represent the old and new values
- *     of the field. These will be converted into a changed message.
- *   - A pre-formatted string describing the change. This is useful for
+ *   - keys: Keys being the name of the field changed and the values being
+ *     associative arrays with the keys 'old' and 'new' to represent the old
+ *     and new values of the field. These will be converted into a changed
+ *     message.
+ *   - string: A pre-formatted string describing the change. This is useful for
  *     logging details like payments.
+ *
  * @return
  *   TRUE or FALSE depending on whether or not changes were logged.
  */
@@ -1435,14 +1541,20 @@ function uc_order_log_changes($order_id, $changes) {
     }
   }
 
-  db_query("INSERT INTO {uc_order_log} (order_id, uid, changes, created) VALUES (%d, %d, '%s', %d)",
-    $order_id, $user->uid, theme('item_list', $items), time());
+  db_insert('uc_order_log')
+    ->fields(array(
+      'order_id' => $order_id,
+      'uid' => $user->uid,
+      'changes' => theme('item_list', array('items' => $items)),
+      'created' => REQUEST_TIME,
+    ))
+    ->execute();
 
   return TRUE;
 }
 
 /**
- * Return an address from an order object.
+ * Returns an address from an order object.
  *
  * @param $order
  *   An order object.
@@ -1450,17 +1562,17 @@ function uc_order_log_changes($order_id, $changes) {
  *   Either 'delivery' or 'billing'.
  */
 function uc_order_address($order, $type) {
-  $name = $order->{$type .'_first_name'} .' '. $order->{$type .'_last_name'};
+  $name = $order->{$type . '_first_name'} . ' ' . $order->{$type . '_last_name'};
   $address = uc_address_format(
-    $order->{$type .'_first_name'},
-    $order->{$type .'_last_name'},
-    $order->{$type .'_company'},
-    $order->{$type .'_street1'},
-    $order->{$type .'_street2'},
-    $order->{$type .'_city'},
-    $order->{$type .'_zone'},
-    $order->{$type .'_postal_code'},
-    $order->{$type .'_country'}
+    $order->{$type . '_first_name'},
+    $order->{$type . '_last_name'},
+    $order->{$type . '_company'},
+    $order->{$type . '_street1'},
+    $order->{$type . '_street2'},
+    $order->{$type . '_city'},
+    $order->{$type . '_zone'},
+    $order->{$type . '_postal_code'},
+    $order->{$type . '_country'}
   );
 
   if (variable_get('uc_order_capitalize_addresses', TRUE)) {
@@ -1471,14 +1583,14 @@ function uc_order_address($order, $type) {
 }
 
 /**
- * Invokes hook_order() in every module.
+ * Invokes hook_uc_order() in every module.
  *
  * We cannot use module_invoke() for this, because the arguments need to
  * be passed by reference.
  */
 function uc_order_module_invoke($op, &$order, $edit) {
-  foreach (module_list() as $module) {
-    $function = $module .'_order';
+  foreach (module_implements('uc_order') as $module) {
+    $function = $module . '_uc_order';
     if (function_exists($function)) {
       $function($op, $order, $edit);
     }
@@ -1486,16 +1598,16 @@ function uc_order_module_invoke($op, &$order, $edit) {
 }
 
 /**
- * Return TRUE if an order exists.
+ * Returns TRUE if an order exists.
  */
 function uc_order_exists($order_id) {
   if (intval($order_id) <= 0) {
     return FALSE;
   }
 
-  $result = db_query("SELECT order_id FROM {uc_orders} WHERE order_id = %d", $order_id);
+  $order = db_query("SELECT order_id FROM {uc_orders} WHERE order_id = :id", array(':id' => $order_id))->fetchField();
 
-  if ($order = db_fetch_object($result)) {
+  if ($order) {
     return TRUE;
   }
 
@@ -1503,7 +1615,7 @@ function uc_order_exists($order_id) {
 }
 
 /**
- * Calculate up an order's total!
+ * Calculates an order's total.
  */
 function uc_order_get_total($order, $products_only = FALSE) {
   $total = 0;
@@ -1512,23 +1624,10 @@ function uc_order_get_total($order, $products_only = FALSE) {
     return $total;
   }
 
-  if (isset($order->products) && is_array($order->products)) {
-    $context = array(
-      'revision' => 'altered',
-      'type' => 'order_product',
-    );
-
+  if (is_array($order->products)) {
     foreach ($order->products as $product) {
-      $price_info = array(
-        'price' => $product->price,
-        'qty' => ($product->qty) ? $product->qty : 1,
-      );
-      $context['subject'] = array(
-        'order' => $order,
-        'product' => $product,
-        'node' => node_load($product->nid),
-      );
-      $total += uc_price($price_info, $context);
+      $qty = $product->qty ? $product->qty : 1;
+      $total += $product->price * $qty;
     }
   }
 
@@ -1538,11 +1637,9 @@ function uc_order_get_total($order, $products_only = FALSE) {
 
   $total += uc_line_items_calculate($order);
 
-  foreach (module_list() as $module) {
-    $function = $module .'_order';
-    // $order must be passed by reference. Since hook_order() may be
-    // unknowingly implemented (see date_order() in date_api.module), we verify
-    // the results are numeric before continuing.
+  foreach (module_implements('uc_order') as $module) {
+    $function = $module . '_uc_order';
+    // $order must be passed by reference.
     if (function_exists($function) && ($value = $function('total', $order, NULL)) && is_numeric($value)) {
       $total += $value;
     }
@@ -1552,12 +1649,12 @@ function uc_order_get_total($order, $products_only = FALSE) {
 }
 
 /**
- * Calculate up an order's product count
+ * Calculates an order's product count.
  */
 function uc_order_get_product_count($order) {
   $count = 0;
 
-  if (isset($order->products) && is_array($order->products)) {
+  if (is_array($order->products)) {
     foreach ($order->products as $product) {
       $count += $product->qty;
     }
@@ -1567,6 +1664,35 @@ function uc_order_get_product_count($order) {
 }
 
 /**
+ * Determines whether a product is shippable or not.
+ */
+function uc_order_product_is_shippable($product) {
+  // Return FALSE if the product form specifies this as not shippable.
+  if (empty($product->data['shippable'])) {
+    return FALSE;
+  }
+
+  // See if any other modules have a say in the matter...
+  $result = module_invoke_all('uc_order_product_can_ship', $product);
+
+  // Return TRUE by default.
+  if (empty($result) || in_array(TRUE, $result)) {
+    return TRUE;
+  }
+
+  return FALSE;
+}
+
+/**
+ * Entity API getter for the list of order products.
+ */
+function uc_order_get_product_list($order) {
+  return array_keys($order->products);
+}
+
+/**
+ * Determines if an order is shippable.
+ *
  * An order can be shipped if any of its products can be shipped.
  */
 function uc_order_is_shippable($order) {
@@ -1575,54 +1701,22 @@ function uc_order_is_shippable($order) {
   }
 
   foreach ($order->products as $product) {
-    // Return FALSE if the product form specifies this as not shippable.
-    if (empty($product->data['shippable'])) {
-      $results[] = FALSE;
-      continue;
+    if (uc_order_product_is_shippable($product)) {
+      return TRUE;
     }
-
-    // See if any other modules have a say in the matter...
-    foreach (module_list() as $module) {
-      $function = $module .'_cart_item';
-      if (function_exists($function)) {
-        // $product must be passed by reference to hook_cart_item.
-        $can_ship = $function('can_ship', $product);
-        if (!is_null($can_ship)) {
-          $result[] = $can_ship;
-        }
-      }
-    }
-
-    // Return TRUE by default.
-    if (empty($result) || in_array(TRUE, $result)) {
-      $results[] = TRUE;
-      continue;
-    }
-    $results[] = FALSE;
   }
 
-  return in_array(TRUE, $results);
+  return FALSE;
 }
 
 /**
- * Helper function for order page local tasks.
- */
-function _get_order_screen_titles() {
-  $titles = array(
-    'view' => t('View'),
-    'edit' => t('Edit'),
-    'invoice' => t('Invoice'),
-    'customer' => t('Customer'),
-  );
-
-  return $titles;
-}
-
-/**
- * Preprocess a formatted invoice with an order's data.
+ * Preprocesses a formatted invoice with an order's data.
+ *
+ * @see uc_order--admin.tpl.php
+ * @see uc_order--customer.tpl.php
  */
 function template_preprocess_uc_order(&$variables) {
-  $variables['thank_you_message'] = FALSE;
+  $order = &$variables['order'];
 
   switch ($variables['op']) {
     case 'checkout-mail':
@@ -1638,61 +1732,98 @@ function template_preprocess_uc_order(&$variables) {
       break;
   }
 
-  $variables['products'] = $variables['order']->products;
-  if (!is_array($variables['products'])) {
-    $variables['products'] = array();
-  }
+  $variables['shippable'] = uc_order_is_shippable($order);
 
-  $variables['line_items'] = $variables['order']->line_items;
-  $items = _line_item_list();
-  foreach ($items as $item) {
-    if (isset($item['display_only']) && $item['display_only'] == TRUE) {
-      $result = $item['callback']('display', $variables['order']);
-      if (is_array($result)) {
-        foreach ($result as $line) {
-          $variables['line_items'][] = array(
-            'line_item_id' => $line['id'],
-            'title' => $line['title'],
-            'amount' => $line['amount'],
-            'weight' => $item['weight'],
-            'data' => isset($item['data']) ? $item['data'] : array(),
-          );
-        }
+  $variables['products'] = $order->products;
+  $display = uc_order_product_view_multiple($order->products);
+  foreach ($variables['products'] as &$product) {
+    $product->total_price = render($display['uc_order_product'][$product->order_product_id]['total']);
+    if ($product->qty > 1) {
+      $product->individual_price = t('(!price each)', array('!price' => uc_currency_format($display['uc_order_product'][$product->order_product_id]['price']['#price'])));
+    }
+    else {
+      $product->individual_price = '';
+    }
+
+    $product->details = '';
+    if (!empty($product->data['attributes'])) {
+      $attributes = array();
+      foreach ($product->data['attributes'] as $attribute => $option) {
+        $attributes[] = t('@attribute: @options', array('@attribute' => $attribute, '@options' => implode(', ', (array)$option)));
       }
+      $product->details .= theme('item_list', array('items' => $attributes));
     }
   }
-  if (!is_array($variables['line_items'])) {
-    $variables['line_items'] = array();
-  }
-  usort($variables['line_items'], 'uc_weight_sort');
+
+  $variables['line_items'] = uc_order_load_line_items_display($variables['order']);
+  $order->line_items = $variables['line_items'];
 
   // Generate tokens to use as template variables.
   $types = array(
-    'order' => $variables['order'],
+    'uc_order' => $order,
   );
 
-  $full = new stdClass();
-  $full->tokens = $full->values = array();
-  foreach ($types as $type => $object) {
-    $temp = token_get_values($type, $object, FALSE);
-    $full->tokens = array_merge($full->tokens, $temp->tokens);
-    $full->values = array_merge($full->values, $temp->values);
+  $token_info = token_info();
+
+  $replacements = array();
+  foreach (array('site', 'store', 'uc_order') as $type) {
+    $replacements[$type] = token_generate($type, drupal_map_assoc(array_keys($token_info['tokens'][$type])), $types);
   }
 
-  foreach ($full->tokens as $key => $token) {
-    $value = $full->values[$key];
-    $variables[str_replace('-', '_', $token)] = $value;
+  foreach ($replacements as $type => $tokens) {
+    foreach ($tokens as $token => $value) {
+      $key = str_replace('-', '_', $type . '_' . $token);
+      $key = str_replace('uc_', '', $key);
+      $variables[$key] = $value;
+    }
   }
 
-  // Add template file suggestions, default to customer template.
-  $variables['template_files'] = array(
-    'uc_order-customer',
-    'uc_order-'. $variables['template'],
+  // Add hook suggestions, default to customer template.
+  $variables['theme_hook_suggestions'] = array(
+    'uc_order__customer',
+    'uc_order__' . $variables['template'],
   );
 }
 
 /**
- * Return an array of invoice templates found in ubercart/uc_order/templates.
+ * Preprocesses a printable invoice page.
+ *
+ * @see uc_order-invoice-page.tpl.php
+ */
+function template_preprocess_uc_order_invoice_page(&$variables) {
+  // Construct page title.
+  if (drupal_get_title()) {
+    $head_title = array(
+      'title' => strip_tags(drupal_get_title()),
+      'name' => variable_get('site_name', 'Drupal'),
+    );
+  }
+  else {
+    $head_title = array('name' => variable_get('site_name', 'Drupal'));
+    if (variable_get('site_slogan', '')) {
+      $head_title['slogan'] = variable_get('site_slogan', '');
+    }
+  }
+
+  // Add favicon.
+  if (theme_get_setting('toggle_favicon')) {
+    $favicon = theme_get_setting('favicon');
+    $type = theme_get_setting('favicon_mimetype');
+    drupal_add_html_head_link(array('rel' => 'shortcut icon', 'href' => drupal_strip_dangerous_protocols($favicon), 'type' => $type));
+  }
+  $variables['head'] = drupal_get_html_head();
+
+  // Set the default language if necessary.
+  $language = isset($GLOBALS['language']) ? $GLOBALS['language'] : language_default();
+
+  $variables['head_title'] = implode(' | ', $head_title);
+  $variables['base_path'] = base_path();
+  $variables['language']          = $language;
+  $variables['language']->dir     = $language->direction ? 'rtl' : 'ltr';
+}
+
+/**
+ * Returns an array of invoice templates found in ubercart/uc_order/templates.
  */
 function uc_invoice_template_list() {
   $templates = drupal_map_assoc(module_invoke_all('uc_invoice_templates'));
@@ -1704,7 +1835,7 @@ function uc_invoice_template_list() {
 }
 
 /**
- * Return a list of options for a template select box.
+ * Returns a list of options for a template select box.
  */
 function uc_order_template_options($custom = FALSE) {
   $templates = drupal_map_assoc(uc_invoice_template_list());
@@ -1717,43 +1848,47 @@ function uc_order_template_options($custom = FALSE) {
 }
 
 /**
- * Return a sorted list of the order states defined in the various modules.
+ * Returns a sorted list of the order states defined in the various modules.
  *
  * @param $scope
  *   Specify the scope for the order states you want listed - all, general, or
- *   specific.  States with a general scope are used on general lists and pages.
+ *   specific. States with a general scope are used on general lists and pages.
  * @param $sql
  *   Pass this parameter as TRUE to alter the return value for a SQL query.
+ *
  * @return
  *   Either an array of state arrays or a string containing an array of state
  *   ids for use in a SQL query.
  */
 function uc_order_state_list($scope = 'all', $sql = FALSE) {
-  $states = module_invoke_all('order_state');
-  foreach ($states as $i => $value) {
-    if ($scope != 'all' && $states[$i]['scope'] != $scope) {
-      unset($states[$i]);
+  $states = array();
+
+  foreach (module_invoke_all('uc_order_state') as $id => $state) {
+    // Preserve backward compatibility for states with no key specified.
+    if (is_numeric($id)) {
+      $id = $state['id'];
+    }
+    else {
+      $state['id'] = $id;
+    }
+
+    if ($scope == 'all' || $state['scope'] == $scope) {
+      $states[$id] = $state;
     }
   }
-  usort($states, 'uc_weight_sort');
+  uasort($states, 'uc_weight_sort');
 
-  if ($sql) {
-    foreach ($states as $state) {
-      $ids[] = $state['id'];
-    }
-    return "('". implode("', '", $ids) ."')";
-  }
-
-  return $states;
+  return $sql ? array_keys($states) : $states;
 }
 
 /**
- * Return a bit of data from a state array based on the state ID and array key.
+ * Returns a bit of data from a state array based on the state ID and array key.
  *
  * @param $state_id
  *   The ID of the order state you want to get data from.
  * @param $key
  *   The key in the state array whose value you want: id, title, weight, scope.
+ *
  * @return
  *   The value of the key you specify.
  */
@@ -1761,20 +1896,18 @@ function uc_order_state_data($state_id, $key) {
   static $states;
 
   if (empty($states)) {
-    $data = uc_order_state_list();
-    foreach ($data as $state) {
-      $states[$state['id']] = $state;
-    }
+    $states = uc_order_state_list();
   }
 
   return $states[$state_id][$key];
 }
 
 /**
- * Return the default order status for a particular order state.
+ * Returns the default order status for a particular order state.
  *
  * @param $state_id
  *   The ID of the order state whose default status you want to find.
+ *
  * @return
  *   A string containing the default order status ID for the specified state.
  */
@@ -1787,7 +1920,7 @@ function uc_order_state_default($state_id) {
   }
 
   // Attempt to get the default state from the form.
-  $default[$state_id] = variable_get('uc_state_'. $state_id .'_default', NULL);
+  $default[$state_id] = variable_get('uc_state_' . $state_id . '_default', NULL);
 
   // If it is not found, pick the lightest status for this state.
   if (empty($default[$state_id])) {
@@ -1799,16 +1932,17 @@ function uc_order_state_default($state_id) {
 }
 
 /**
- * Return a sorted list of order statuses, sortable by order state/scope.
+ * Returns a sorted list of order statuses, sortable by order state/scope.
  *
  * @param $scope
  *   Specify the scope for the order statuses you want listed - all, general,
- *   specific, or any order state id.  Defaults to all.
+ *   specific, or any order state id. Defaults to all.
  * @param $sql
  *   Pass this parameter as TRUE to alter the return value for a SQL query.
  * @param $action
- *   Empty by default.  Set to rebuild to load the order statuses from scratch,
+ *   Empty by default. Set to rebuild to load the order statuses from scratch,
  *   disregarding the current cached value for the specified $scope.
+ *
  * @return
  *   Either an array of status arrays or a string containing an array of status
  *   ids for use in a SQL query.
@@ -1823,40 +1957,46 @@ function uc_order_status_list($scope = 'all', $sql = FALSE, $action = '') {
         break;
       case 'general':
       case 'specific':
-        $result = db_query("SELECT * FROM {uc_order_statuses} WHERE state IN "
-                         . uc_order_state_list($scope, TRUE));
+        $result = db_query("SELECT * FROM {uc_order_statuses} WHERE state IN (:states)", array(':states' => uc_order_state_list($scope, TRUE)));
         break;
       default:
-        $result = db_query("SELECT * FROM {uc_order_statuses} WHERE state = '%s'", $scope);
+        $result = db_query("SELECT * FROM {uc_order_statuses} WHERE state = :scope", array(':scope' => $scope));
         break;
     }
 
     $statuses[$scope] = array();
-    while ($status = db_fetch_array($result)) {
+    while ($status = $result->fetchAssoc()) {
       $status['id'] = $status['order_status_id'];
       unset($status['order_status_id']);
+
+      if (function_exists('i18n_string')) {
+        $status['title'] = i18n_string('uc_order_status:status:' . $status['id'] . ':title', $status['title']);
+      }
+
       $statuses[$scope][] = $status;
     }
     usort($statuses[$scope], 'uc_weight_sort');
   }
 
   if ($sql) {
+    $ids = array();
     foreach ($statuses[$scope] as $status) {
       $ids[] = $status['id'];
     }
-    return "('". implode("', '", $ids) ."')";
+    return $ids;
   }
 
   return $statuses[$scope];
 }
 
 /**
- * Return a bit of data from a status array based on status ID and array key.
+ * Returns a bit of data from a status array based on status ID and array key.
  *
  * @param $status_id
  *   The ID of the order status you want to get data from.
  * @param $key
  *   The key in the status array whose value you want: id, title, state, weight.
+ *
  * @return
  *   The value of the key you specify.
  */
@@ -1874,11 +2014,23 @@ function uc_order_status_data($status_id, $key) {
 }
 
 /**
- * Return the actions a user may perform on an order.
+ * Returns an option list of order statuses.
+ */
+function uc_order_status_options_list() {
+  $options = array();
+  foreach (uc_order_status_list() as $status) {
+    $options[$status['id']] = $status['title'];
+  }
+  return $options;
+}
+
+/**
+ * Returns the actions a user may perform on an order.
  *
  * @param $icon_html
  *   Specify whether or not to return the result as an HTML string with the
- *     order action icon links.
+ *   order action icon links.
+ *
  * @return
  *   Valid actions for an order; returned according to the $icon_html parameter.
  */
@@ -1893,16 +2045,16 @@ function uc_order_actions($order, $icon_html = FALSE) {
     $alt = t('View order @order_id.', $order_id);
     $actions[] = array(
       'name' => t('View'),
-      'url' => 'admin/store/orders/'. $order->order_id,
-      'icon' => '<img src="'. base_path() . drupal_get_path('module', 'uc_store') .'/images/order_view.gif" alt="'. $alt .'" />',
+      'url' => 'admin/store/orders/' . $order->order_id,
+      'icon' => theme('image', array('path' => drupal_get_path('module', 'uc_store') . '/images/order_view.gif', 'alt' => $alt)),
       'title' => $alt,
     );
 
     $alt = t('Print order @order_id.', $order_id);
     $actions[] = array(
       'name' => t('Print'),
-      'url' => 'admin/store/orders/'. $order->order_id .'/invoice/print',
-      'icon' => '<img src="'. base_path() . drupal_get_path('module', 'uc_store') .'/images/print.gif" alt="'. $alt .'" />',
+      'url' => 'admin/store/orders/' . $order->order_id . '/invoice/print',
+      'icon' => theme('image', array('path' => drupal_get_path('module', 'uc_store') . '/images/print.gif', 'alt' => $alt)),
       'title' => $alt,
     );
   }
@@ -1910,17 +2062,17 @@ function uc_order_actions($order, $icon_html = FALSE) {
     $alt = t('View order @order_id.', $order_id);
     $actions[] = array(
       'name' => t('View'),
-      'url' => 'user/'. $user->uid .'/orders/'. $order->order_id,
-      'icon' => '<img src="'. base_path() . drupal_get_path('module', 'uc_store') .'/images/order_view.gif" alt="'. $alt .'" />',
+      'url' => 'user/' . $user->uid . '/orders/' . $order->order_id,
+      'icon' => theme('image', array('path' => drupal_get_path('module', 'uc_store') . '/images/order_view.gif', 'alt' => $alt)),
       'title' => $alt,
     );
 
-    if (variable_get('uc_cust_view_order_invoices', TRUE)) {
+    if (user_access('view own invoices')) {
       $alt = t('Print order @order_id.', $order_id);
       $actions[] = array(
         'name' => t('Print'),
-        'url' => 'user/'. $user->uid .'/orders/'. $order->order_id .'/print',
-        'icon' => '<img src="'. base_path() . drupal_get_path('module', 'uc_store') .'/images/print.gif" alt="'. $alt .'" />',
+        'url' => 'user/' . $user->uid . '/orders/' . $order->order_id . '/print',
+        'icon' => theme('image', array('path' => drupal_get_path('module', 'uc_store') . '/images/print.gif', 'alt' => $alt)),
         'title' => $alt,
       );
     }
@@ -1930,8 +2082,8 @@ function uc_order_actions($order, $icon_html = FALSE) {
     $alt = t('Edit order @order_id.', $order_id);
     $actions[] = array(
       'name' => t('Edit'),
-      'url' => 'admin/store/orders/'. $order->order_id .'/edit',
-      'icon' => '<img src="'. base_path() . drupal_get_path('module', 'uc_store') .'/images/order_edit.gif" alt="'. $alt .'" />',
+      'url' => 'admin/store/orders/' . $order->order_id . '/edit',
+      'icon' => theme('image', array('path' => drupal_get_path('module', 'uc_store') . '/images/order_edit.gif', 'alt' => $alt)),
       'title' => $alt,
     );
   }
@@ -1940,25 +2092,30 @@ function uc_order_actions($order, $icon_html = FALSE) {
     $alt = t('Delete order @order_id.', $order_id);
     $actions[] = array(
       'name' => t('Delete'),
-      'url' => 'admin/store/orders/'. $order->order_id .'/delete',
-      'icon' => '<img src="'. base_path() . drupal_get_path('module', 'uc_store') .'/images/order_delete.gif" alt="'. $alt .'" />',
+      'url' => 'admin/store/orders/' . $order->order_id . '/delete',
+      'icon' => theme('image', array('path' => drupal_get_path('module', 'uc_store') . '/images/order_delete.gif', 'alt' => $alt)),
       'title' => $alt,
     );
   }
 
-  $extra = module_invoke_all('order_actions', $order);
+  $extra = module_invoke_all('uc_order_actions', $order);
   if (count($extra)) {
     $actions = array_merge($actions, $extra);
   }
+  drupal_alter('uc_order_actions', $actions, $order);
 
   if ($icon_html) {
     $output = '';
     foreach ($actions as $action) {
+      $action['classes'][] = 'uc-order-action';
+      if (empty($action['attributes'])) {
+        $action['attributes'] = array();
+      }
+      $action['attributes']['title'] = $action['title'];
+      $action['attributes']['class'] = implode(' ', $action['classes']);
+
       $output .= l($action['icon'], $action['url'], array(
-        'attributes' => array(
-          'class' => 'uc-order-action',
-          'title' => $action['title'],
-        ),
+        'attributes' => $action['attributes'],
         'html' => TRUE,
       ));
     }
@@ -1988,8 +2145,8 @@ function uc_order_can_delete($order, $account = NULL) {
     else {
       $can_delete = TRUE;
       // See if any modules have a say in this order's eligibility for deletion.
-      foreach (module_implements('order') as $module) {
-        $function = $module . '_order';
+      foreach (module_implements('uc_order') as $module) {
+        $function = $module . '_uc_order';
         if (function_exists($function) && $function('can_delete', $order, NULL) === FALSE) {
           $can_delete = FALSE;
           break;
@@ -2002,4 +2159,233 @@ function uc_order_can_delete($order, $account = NULL) {
   else {
     return FALSE;
   }
+}
+
+/**
+ * Entity metadata callback for getting order properties.
+ *
+ * @see uc_order_entity_property_info()
+ */
+function uc_order_uc_order_get_properties($order, array $options, $name, $entity_type) {
+  switch ($name) {
+    case 'customer':
+      return $order->uid;
+  }
+}
+
+/**
+ * Entity metadata callback for setting order properties.
+ *
+ * @see uc_order_entity_property_info()
+ */
+function uc_order_uc_order_set_properties($order, $name, $value) {
+  if ($name == 'customer') {
+    $order->uid = $value;
+  }
+}
+
+/**
+ * Entity metadata callback: get the delivery or billing address of an order.
+ */
+function uc_order_address_property_get($order, array $options, $name, $entity_type) {
+  switch ($name) {
+    case 'delivery_address':
+      $type = 'delivery_';
+      break;
+
+    case 'billing_address':
+      $type = 'billing_';
+      break;
+
+    default:
+      return NULL;
+  }
+
+  $address = new UcAddress();
+
+  foreach ($address as $field => $value) {
+    if ($field != 'email') {
+      $address->{$field} = $order->{$type . $field};
+    }
+  }
+
+  return $address;
+}
+
+/**
+ * Entity metadata callback: set the delivery or billing address of an order.
+ */
+function uc_order_address_property_set($order, $name, $address) {
+  switch ($name) {
+    case 'delivery_address':
+      $type = 'delivery_';
+      break;
+
+    case 'billing_address':
+      $type = 'billing_';
+      break;
+
+    default:
+      return;
+  }
+
+  foreach ($address as $field => $value) {
+    if ($field != 'email') {
+      $order->{$type . $field} = $value;
+    }
+  }
+}
+
+/**
+ * Entity metadata callback: get the full product node for an order product.
+ */
+function uc_order_product_node_property_get($product, array $options, $name, $entity_type) {
+  return node_load($product->nid);
+}
+
+/**
+ * Entity metadata callback: set the nid for an order product.
+ */
+function uc_order_product_node_property_set($product, $name, $node) {
+  $product->nid = $node->nid;
+}
+
+/**
+ * Implements hook_date_views_tables().
+ */
+function uc_order_date_views_tables() {
+  return array('uc_orders');
+}
+
+/**
+ * Implements hook_date_views_fields().
+ *
+ * All modules that create custom fields that use the
+ * 'views_handler_field_date' handler can provide
+ * additional information here about the type of
+ * date they create so the date can be used by
+ * the Date API views date argument and date filter.
+ */
+function uc_order_date_views_fields($field) {
+  $values = array(
+    // The type of date: DATE_UNIX, DATE_ISO, DATE_DATETIME.
+    'sql_type' => DATE_UNIX,
+    // Timezone handling options: 'none', 'site', 'date', 'utc' .
+    'tz_handling' => 'site',
+    // Needed only for dates that use 'date' tz_handling.
+    'timezone_field' => '',
+    // Needed only for dates that use 'date' tz_handling.
+    'offset_field' => '',
+    // Array of "table.field" values for related fields that should be
+    // loaded automatically in the Views SQL.
+    'related_fields' => array(),
+    // Granularity of this date field's db data.
+    'granularity' => array('year', 'month', 'day', 'hour', 'minute', 'second'),
+  );
+
+  switch ($field) {
+    case 'uc_orders.created':
+    case 'uc_orders.modified':
+      return $values;
+  }
+}
+
+/**
+ * Implements hook_action_info().
+ */
+function uc_order_action_info() {
+  return array(
+    'uc_order_action_set_status' => array(
+      'label' => t('Set order status'),
+      'type' => 'uc_order',
+      'configurable' => TRUE,
+      'triggers' => array('any'),
+    ),
+    'uc_order_action_print' => array(
+      'label' => t('Print invoice'),
+      'type' => 'uc_order',
+      'aggregate' => TRUE,
+      'configurable' => FALSE,
+      'triggers' => array('any'),
+    ),
+    'uc_order_action_delete' => array(
+      'label' => t('Delete order'),
+      'type' => 'uc_order',
+      'configurable' => FALSE,
+      'behavior' => array('deletes_property'),
+      'triggers' => array('any'),
+    ),
+  );
+}
+
+/**
+ * Action implementation: sets the status of an order.
+ */
+function uc_order_action_set_status($order, $context = array()) {
+  $update = uc_order_update_status($order->order_id, $context['status']);
+
+  if ($update && $context['notify']) {
+    // Update order object, as uc_order_update_status() cannot.
+    $order->order_status = $context['status'];
+
+    rules_invoke_event('uc_order_status_email_update', $order);
+  }
+}
+
+/**
+ * Action form: selects the order status to be used.
+ */
+function uc_order_action_set_status_form($context) {
+  $form['status'] = array(
+    '#type' => 'select',
+    '#title' => t('Order status'),
+    '#default_value' => @$context['status'],
+    '#options' => uc_order_status_options_list(),
+  );
+  $form['notify'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Send e-mail notification on update.'),
+    '#default_value' => @$context['notify'],
+  );
+  return $form;
+}
+
+/**
+ * Submit callback: selects the order status to be used.
+ */
+function uc_order_action_set_status_submit($form, $form_state) {
+  return array(
+    'status' => $form_state['values']['status'],
+    'notify' => $form_state['values']['notify'],
+  );
+}
+
+/**
+ * Action implementation: prints multiple invoices.
+ */
+function uc_order_action_print($orders, $context = array()) {
+  $output = '';
+
+  foreach ($orders as $order) {
+    $output .= '<div style="page-break-after: always;">';
+    $output .= theme('uc_order', array(
+      'order' => $order,
+      'op' => 'print',
+      'template' => variable_get('uc_cust_order_invoice_template', 'customer'),
+    ));
+    $output .= '</div>';
+  }
+
+  print '<html><head><title>Invoice</title></head>';
+  print '<body onload="print();">';
+  print $output;
+  print '</body></html>';
+  exit;
+}
+
+/**
+ * Action implementation: delete an order.
+ */
+function uc_order_action_delete($order) {
+  uc_order_delete($order->order_id);
 }

@@ -3,9 +3,11 @@
 /**
  * @file
  * 2checkout menu items.
- *
  */
 
+/**
+ * Finalizes 2checkout transaction.
+ */
 function uc_2checkout_complete($cart_id = 0) {
   watchdog('2Checkout', 'Receiving new order notification for order !order_id.', array('!order_id' => check_plain($_REQUEST['merchant_order_id'])));
 
@@ -18,14 +20,19 @@ function uc_2checkout_complete($cart_id = 0) {
   $key = $_REQUEST['key'];
   $order_number = variable_get('uc_2checkout_demo', TRUE) ? 1 : $_REQUEST['order_number'];
   $valid = md5(variable_get('uc_2checkout_secret_word', 'tango') . $_REQUEST['sid'] . $order_number . $_REQUEST['total']);
-  if (strtolower($key) != strtolower($valid)) {
+  if (drupal_strtolower($key) != drupal_strtolower($valid)) {
     uc_order_comment_save($order->order_id, 0, t('Attempted unverified 2Checkout completion for this order.'), 'admin');
     return MENU_ACCESS_DENIED;
   }
 
   if ($_REQUEST['demo'] == 'Y' xor variable_get('uc_2checkout_demo', TRUE)) {
-    watchdog('uc_2checkout', 'The 2checkout payment for order <a href="!order_url">@order_id</a> demo flag was set to %flag, but the module is set to %mode mode.',
-      array('!order_url' => url('admin/store/orders/'. $order->order_id), '@order_id' => $order->order_id, '%flag' => $_REQUEST['demo'] == 'Y' ? 'Y' : 'N', '%mode' => variable_get('uc_2checkout_demo', TRUE) ? 'Y' : 'N'), WATCHDOG_ERROR);
+    watchdog('uc_2checkout', 'The 2checkout payment for order <a href="@order_url">@order_id</a> demo flag was set to %flag, but the module is set to %mode mode.', array(
+      '@order_url' => url('admin/store/orders/' . $order->order_id),
+      '@order_id' => $order->order_id,
+      '%flag' => $_REQUEST['demo'] == 'Y' ? 'Y' : 'N',
+      '%mode' => variable_get('uc_2checkout_demo', TRUE) ? 'Y' : 'N',
+    ), WATCHDOG_ERROR);
+
     if (!variable_get('uc_2checkout_demo', TRUE)) {
       return MENU_ACCESS_DENIED;
     }
@@ -37,12 +44,12 @@ function uc_2checkout_complete($cart_id = 0) {
   $order->billing_postal_code = $_REQUEST['zip'];
   $order->billing_phone = $_REQUEST['phone'];
 
-  $zone_id = db_result(db_query("SELECT zone_id FROM {uc_zones} WHERE zone_code LIKE '%s'", $_REQUEST['state']));
+  $zone_id = db_query("SELECT zone_id FROM {uc_zones} WHERE zone_code LIKE :code", array(':code' => $_REQUEST['state']))->fetchField();
   if (!empty($zone_id)) {
     $order->billing_zone = $zone_id;
   }
 
-  $country_id = db_result(db_query("SELECT country_id FROM {uc_countries} WHERE country_name LIKE '%s'", $_REQUEST['country']));
+  $country_id = db_query("SELECT country_id FROM {uc_countries} WHERE country_name LIKE :name", array(':name' => $_REQUEST['country']))->fetchField();
   if (!empty($country_id)) {
     $order->billing_country = $country_id;
   }
@@ -50,7 +57,7 @@ function uc_2checkout_complete($cart_id = 0) {
   // Save changes to order without it's completion.
   uc_order_save($order);
 
-  if (strtolower($_REQUEST['email']) !== strtolower($order->primary_email)) {
+  if (drupal_strtolower($_REQUEST['email']) !== drupal_strtolower($order->primary_email)) {
     uc_order_comment_save($order->order_id, 0, t('Customer used a different e-mail address during payment: !email', array('!email' => check_plain($_REQUEST['email']))), 'admin');
   }
 
@@ -69,7 +76,7 @@ function uc_2checkout_complete($cart_id = 0) {
   // Add a comment to let sales team know this came in through the site.
   uc_order_comment_save($order->order_id, 0, t('Order created through website.'), 'admin');
 
-  $output = uc_cart_complete_sale($order, variable_get('uc_new_customer_login', FALSE));
+  $build = uc_cart_complete_sale($order, variable_get('uc_new_customer_login', FALSE));
 
   $page = variable_get('uc_cart_checkout_complete_page', '');
 
@@ -77,5 +84,5 @@ function uc_2checkout_complete($cart_id = 0) {
     drupal_goto($page);
   }
 
-  return $output;
+  return $build;
 }

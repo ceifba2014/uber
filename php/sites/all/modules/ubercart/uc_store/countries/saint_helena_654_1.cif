@@ -3,10 +3,15 @@
 function saint_helena_install() {
   // Make the entry in the country table.
   // VALUES = Country ID, Country Name, 2-digit Code, 3-digit Code, File Version
-
-
-   db_query("INSERT INTO {uc_countries} (country_id, country_name, country_iso_code_2, country_iso_code_3, version)
-    VALUES ('654', 'Saint Helena, Ascension and Tristan da Cunha', 'SH', 'SHN', 1)");
+  db_insert('uc_countries')
+    ->fields(array(
+      'country_id' => 654,
+      'country_name' => 'Saint Helena, Ascension and Tristan da Cunha',
+      'country_iso_code_2' => 'SH',
+      'country_iso_code_3' => 'SHN',
+      'version' => 1,
+    ))
+    ->execute();
 
   // No zones
 

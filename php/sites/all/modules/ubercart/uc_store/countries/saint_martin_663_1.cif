@@ -3,10 +3,15 @@
 function saint_martin_install() {
   // Make the entry in the country table.
   // VALUES = Country ID, Country Name, 2-digit Code, 3-digit Code, File Version
-
-   db_query("INSERT INTO {uc_countries} (country_id, country_name, country_iso_code_2, country_iso_code_3, version)
-    VALUES ('663', 'Saint Martin (French part)', 'MF', 'MAF', 1)");
-
+  db_insert('uc_countries')
+    ->fields(array(
+      'country_id' => 663,
+      'country_name' => 'Saint Martin (French part)',
+      'country_iso_code_2' => 'MF',
+      'country_iso_code_3' => 'MAF',
+      'version' => 1,
+    ))
+    ->execute();
 
   // No zones
 

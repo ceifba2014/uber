@@ -7,6 +7,18 @@
 
 
 /**
+ * Implements hook_help().
+ */
+function uc_2checkout_help($path, $arg) {
+  switch ($path) {
+    case 'admin/store/settings/payment/method/%':
+      if ($arg[5] == '2checkout') {
+        return '<p>' . t('To accept PayPal payments in 2Checkout, please ensure that demo mode is disabled and your store currency is one of USD, AUD, CAD, EUR or GBP.') . '</p>';
+      }
+  }
+}
+
+/**
  * Implements hook_menu().
  */
 function uc_2checkout_menu() {
@@ -15,7 +27,7 @@ function uc_2checkout_menu() {
   $items['cart/2checkout/complete'] = array(
     'title' => 'Order complete',
     'page callback' => 'uc_2checkout_complete',
-    'access callback' => 'uc_2checkout_completion_access',
+    'access callback' => TRUE,
     'type' => MENU_CALLBACK,
     'file' => 'uc_2checkout.pages.inc',
   );
@@ -29,14 +41,6 @@ function uc_2checkout_menu() {
 function uc_2checkout_init() {
   global $conf;
   $conf['i18n_variables'][] = 'uc_2checkout_method_title';
-  $conf['i18n_variables'][] = 'uc_2checkout_checkout_button';
-}
-
-/**
- * Make sure anyone can complete their 2Checkout orders.
- */
-function uc_2checkout_completion_access() {
-  return TRUE;
 }
 
 /**
@@ -51,38 +55,25 @@ function uc_2checkout_ucga_display() {
 }
 
 /**
- * Implements hook_form_alter().
- */
-function uc_2checkout_form_alter(&$form, $form_state, $form_id) {
-  if ($form_id == 'uc_cart_checkout_review_form' && ($order_id = intval($_SESSION['cart_order'])) > 0) {
-    $order = uc_order_load($order_id);
-
-    if ($order->payment_method == '2checkout') {
-      drupal_add_css(drupal_get_path('module', 'uc_2checkout') .'/uc_2checkout.css');
-      unset($form['submit']);
-      $form['#prefix'] = '<table id="two-checkout-review-table"><tr><td>';
-      $form['#suffix'] = '</td><td>'. drupal_get_form('uc_2checkout_form', $order) .'</td></tr></table>';
-    }
-  }
-}
-
-/**
- * Implements hook_payment_method().
+ * Implements hook_uc_payment_method().
  *
  * @see uc_payment_method_2checkout()
  */
-function uc_2checkout_payment_method() {
+function uc_2checkout_uc_payment_method() {
   $path = base_path() . drupal_get_path('module', 'uc_2checkout');
   $title = variable_get('uc_2checkout_method_title', t('Credit card on a secure server:'));
-  $title .= '<br /><img src="'. $path .'/2co_logo.jpg" style="position: relative; left: 2.2em;" />';
+  $title .= '<br />' . theme('image', array(
+    'path' => drupal_get_path('module', 'uc_2checkout') . '/2co_logo.jpg',
+    'attributes' => array('class' => array('uc-2checkout-logo')),
+  ));
 
-  $methods[] = array(
-    'id' => '2checkout',
+  $methods['2checkout'] = array(
     'name' => t('2Checkout'),
     'title' => $title,
     'review' => variable_get('uc_2checkout_check', FALSE) ? t('Credit card/eCheck') : t('Credit card'),
     'desc' => t('Redirect to 2Checkout to pay by credit card or eCheck.'),
     'callback' => 'uc_payment_method_2checkout',
+    'redirect' => 'uc_2checkout_form',
     'weight' => 3,
     'checkout' => TRUE,
     'no_gateway' => TRUE,
@@ -91,32 +82,35 @@ function uc_2checkout_payment_method() {
   return $methods;
 }
 
-
 /**
- * Add 2Checkout settings to the payment method settings form.
+ * Adds 2Checkout settings to the payment method settings form.
  *
- * @see uc_2checkout_payment_method()
+ * @see uc_2checkout_uc_payment_method()
  */
-function uc_payment_method_2checkout($op, &$arg1) {
+function uc_payment_method_2checkout($op, &$order, $form = NULL, &$form_state = NULL) {
   switch ($op) {
     case 'cart-details':
+      $build = array();
+
       if (variable_get('uc_2checkout_check', FALSE)) {
-        if ($_SESSION['pay_method'] == 'CK') {
-          $sel[2] = ' selected="selected"';
-        }
-        else {
-          $sel[1] = ' selected="selected"';
-        }
+        $build['pay_method'] = array(
+          '#type' => 'select',
+          '#title' => t('Select your payment type:'),
+          '#default_value' => $_SESSION['pay_method'] == 'CK' ? 'CK' : 'CC',
+          '#options' => array(
+            'CC' => t('Credit card'),
+            'CK' => t('Online check'),
+          ),
+        );
         unset($_SESSION['pay_method']);
-        $details = '<div class="form-item"><b>'. t('Select your payment type:')
-                  .'</b> <select name="pay_method" class="form-select" id="edit-pay-method">'
-                  .'<option value="CC"'. $sel[1] .'>'. t('Credit card') .'</option>'
-                  .'<option value="CK"'. $sel[2] .'>'. t('Online check') .'</option></select></div>';
       }
-      return $details;
+
+      return $build;
 
     case 'cart-process':
-      $_SESSION['pay_method'] = $_POST['pay_method'];
+      if (isset($form_state['values']['panes']['payment']['details']['pay_method'])) {
+        $_SESSION['pay_method'] = $form_state['values']['panes']['payment']['details']['pay_method'];
+      }
       return;
 
     case 'settings':
@@ -159,12 +153,6 @@ function uc_payment_method_2checkout($op, &$arg1) {
         '#title' => t('Payment method title'),
         '#default_value' => variable_get('uc_2checkout_method_title', t('Credit card on a secure server:')),
       );
-      $form['uc_2checkout_checkout_button'] = array(
-        '#type' => 'textfield',
-        '#title' => t('Order review submit button text'),
-        '#description' => t('Provide 2Checkout specific text for the submit button on the order review page.'),
-        '#default_value' => variable_get('uc_2checkout_checkout_button', t('Submit Order')),
-      );
       $form['uc_2checkout_checkout_type'] = array(
         '#type' => 'select',
         '#title' => t('2Checkout.com checkout type'),
@@ -182,72 +170,62 @@ function uc_payment_method_2checkout($op, &$arg1) {
 /**
  * Form to build the submission to 2Checkout.com.
  */
-function uc_2checkout_form($form_state, $order) {
+function uc_2checkout_form($form, &$form_state, $order) {
   $country = uc_get_country_data(array('country_id' => $order->billing_country));
   if ($country === FALSE) {
     $country = array(0 => array('country_iso_code_3' => 'USA'));
   }
 
-  $context = array(
-    'revision' => 'formatted-original',
-    'type' => 'order_total',
-    'subject' => array(
-      'order' => $order,
-    ),
-  );
-  $options = array(
-    'sign' => FALSE,
-    'dec' => '.',
-    'thou' => FALSE,
-  );
-
   $data = array(
     'sid' => variable_get('uc_2checkout_sid', ''),
-    'total' => uc_price($order->order_total, $context, $options),
+    'total' => uc_currency_format($order->order_total, FALSE, FALSE, '.'),
     'cart_order_id' => $order->order_id,
     'demo' => variable_get('uc_2checkout_demo', TRUE) ? 'Y' : 'N',
     'fixed' => 'Y',
     'lang' => variable_get('uc_2checkout_language', 'en'),
-    'x_receipt_link_url' => url('cart/2checkout/complete/'. uc_cart_get_id(), array('absolute' => TRUE)),
+    'x_receipt_link_url' => url('cart/2checkout/complete/' . uc_cart_get_id(), array('absolute' => TRUE)),
     'merchant_order_id' => $order->order_id,
     'pay_method' => isset($_SESSION['pay_method']) ? $_SESSION['pay_method'] : 'CC',
-    'card_holder_name' => substr($order->billing_first_name .' '. $order->billing_last_name, 0, 128),
-    'street_address' => substr($order->billing_street1, 0, 64),
-    'street_address2' => substr($order->billing_street2, 0, 64),
-    'city' => substr($order->billing_city, 0, 64),
+    'card_holder_name' => drupal_substr($order->billing_first_name . ' ' . $order->billing_last_name, 0, 128),
+    'street_address' => drupal_substr($order->billing_street1, 0, 64),
+    'street_address2' => drupal_substr($order->billing_street2, 0, 64),
+    'city' => drupal_substr($order->billing_city, 0, 64),
     'state' => uc_get_zone_code($order->billing_zone),
-    'zip' => substr($order->billing_postal_code, 0, 16),
+    'zip' => drupal_substr($order->billing_postal_code, 0, 16),
     'country' => $country[0]['country_iso_code_3'],
-    'email' => substr($order->primary_email, 0, 64),
-    'phone' => substr($order->billing_phone, 0, 16),
+    'email' => drupal_substr($order->primary_email, 0, 64),
+    'phone' => drupal_substr($order->billing_phone, 0, 16),
     'id_type' => 1,
   );
 
   $i = 0;
-  $context['type'] = 'order_product';
   foreach ($order->products as $product) {
     $i++;
-    $data['c_prod_'. $i] = $product->model .','. $product->qty;
-    $data['c_name_'. $i] = $product->title;
-    $data['c_description_'. $i] = $desc;
-    $data['c_price_'. $i] = uc_price($product->price, $context, $options);
+    $data['c_prod_' . $i] = $product->model . ',' . $product->qty;
+    $data['c_name_' . $i] = $product->title;
+    $data['c_description_' . $i] = '';
+    $data['c_price_' . $i] = uc_currency_format($product->price, FALSE, FALSE, '.');
   }
 
-  $form['#action'] = _2checkout_post_url(variable_get('uc_2checkout_checkout_type', 'multi'));
+  $form['#action'] = _uc_2checkout_post_url(variable_get('uc_2checkout_checkout_type', 'multi'));
 
   foreach ($data as $name => $value) {
     $form[$name] = array('#type' => 'hidden', '#value' => $value);
   }
 
-  $form['submit'] = array(
+  $form['actions'] = array('#type' => 'actions');
+  $form['actions']['submit'] = array(
     '#type' => 'submit',
-    '#value' => variable_get('uc_2checkout_checkout_button', t('Submit Order')),
+    '#value' => t('Submit order'),
   );
 
   return $form;
 }
 
-function _2checkout_post_url($type) {
+/**
+ * Helper function to obtain 2Checkout URL for a transaction.
+ */
+function _uc_2checkout_post_url($type) {
   switch ($type) {
     case 'single':
       return 'https://www.2checkout.com/checkout/spurchase';

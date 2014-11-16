@@ -12,9 +12,21 @@
  * or production mode. Configures which UPS services are quoted to customers.
  *
  * @see uc_ups_admin_settings_validate()
+ * @see uc_ups_admin_settings_submit()
  * @ingroup forms
  */
-function uc_ups_admin_settings() {
+function uc_ups_admin_settings($form, &$form_state) {
+
+  // Put fieldsets into vertical tabs
+  $form['ups-settings'] = array(
+    '#type' => 'vertical_tabs',
+    '#attached' => array(
+      'js' => array(
+        'vertical-tabs' => drupal_get_path('module', 'uc_ups') . '/uc_ups.admin.js',
+      ),
+    ),
+  );
+
   // Container for credential forms
   $form['uc_ups_credentials'] = array(
     '#type'          => 'fieldset',
@@ -22,6 +34,7 @@ function uc_ups_admin_settings() {
     '#description'   => t('Account number and authorization information.'),
     '#collapsible'   => TRUE,
     '#collapsed'     => TRUE,
+    '#group'         => 'ups-settings',
   );
 
   $form['uc_ups_credentials']['uc_ups_access_license'] = array(
@@ -50,8 +63,8 @@ function uc_ups_admin_settings() {
   );
   $form['uc_ups_credentials']['uc_ups_connection_address'] = array(
     '#type' => 'select',
-    '#title' => t('Mode'),
-    '#description' => t('Quotes and shipments requested in Testing mode will not be picked up or charged to your account.'),
+    '#title' => t('Server mode'),
+    '#description' => t('Use the Testing server while developing and configuring your site. Switch to the Production server only after you have demonstrated that transactions on the Testing server are working and you are ready to go live.'),
     '#options' => array('https://wwwcie.ups.com/ups.app/xml/' => t('Testing'),
       'https://onlinetools.ups.com/ups.app/xml/' => t('Production'),
     ),
@@ -64,10 +77,7 @@ function uc_ups_admin_settings() {
     '#description' => t('Set the conditions that will return a UPS quote.'),
     '#collapsible' => TRUE,
     '#collapsed' => TRUE,
-  );
-
-  $form['services']['uc_ups_conditions'] = array(
-    '#value' => '<p>'. l(t('Set the conditions that will return a UPS quote.'), CA_UI_PATH .'/uc_ups_get_quote/edit/conditions') .'</p>',
+    '#group'         => 'ups-settings',
   );
 
   $form['services']['uc_ups_services'] = array(
@@ -85,6 +95,7 @@ function uc_ups_admin_settings() {
     '#description'   => t('Preferences that affect computation of quote.'),
     '#collapsible'   => TRUE,
     '#collapsed'     => TRUE,
+    '#group'         => 'ups-settings',
   );
 
   $form['uc_ups_quote_options']['uc_ups_all_in_one'] = array(
@@ -92,8 +103,8 @@ function uc_ups_admin_settings() {
     '#title' => t('Product packages'),
     '#default_value' => variable_get('uc_ups_all_in_one', 1),
     '#options' => array(
-      0 => t('Each in its own package'),
-      1 => t('All in one'),
+      0 => t('Each product in its own package'),
+      1 => t('All products in one package'),
     ),
     '#description' => t('Indicate whether each product is quoted as shipping separately or all in one package. Orders with one kind of product will still use the package quantity to determine the number of packages needed, however.'),
   );
@@ -106,7 +117,6 @@ function uc_ups_admin_settings() {
     '#options' => _uc_ups_pkg_types(),
     '#description' => t('Type of packaging to be used.  May be overridden on a per-product basis via the product node edit form.'),
   );
-
   $form['uc_ups_quote_options']['uc_ups_classification'] = array(
     '#type' => 'select',
     '#title' => t('UPS Customer classification'),
@@ -178,13 +188,14 @@ function uc_ups_admin_settings() {
     '#description'   => t('Modifiers to the shipping weight and quoted rate.'),
     '#collapsible'   => TRUE,
     '#collapsed'     => TRUE,
+    '#group'         => 'ups-settings',
   );
 
   // Form to select type of rate markup
-  $form['uc_ups_markups']['uc_ups_markup_type'] = array(
+  $form['uc_ups_markups']['uc_ups_rate_markup_type'] = array(
     '#type' => 'select',
-    '#title' => t('Markup type'),
-    '#default_value' => variable_get('uc_ups_markup_type', 'percentage'),
+    '#title' => t('Rate markup type'),
+    '#default_value' => variable_get('uc_ups_rate_markup_type', 'percentage'),
     '#options' => array(
       'percentage' => t('Percentage (%)'),
       'multiplier' => t('Multiplier (×)'),
@@ -193,11 +204,33 @@ function uc_ups_admin_settings() {
   );
 
   // Form to select rate markup amount
-  $form['uc_ups_markups']['uc_ups_markup'] = array(
+  $form['uc_ups_markups']['uc_ups_rate_markup'] = array(
     '#type' => 'textfield',
     '#title' => t('Shipping rate markup'),
-    '#default_value' => variable_get('uc_ups_markup', '0'),
+    '#default_value' => variable_get('uc_ups_rate_markup', '0'),
     '#description' => t('Markup shipping rate quote by currency amount, percentage, or multiplier.'),
+  );
+
+  // Form to select type of weight markup
+  $form['uc_ups_markups']['uc_ups_weight_markup_type'] = array(
+    '#type'          => 'select',
+    '#title'         => t('Weight markup type'),
+    '#default_value' => variable_get('uc_ups_weight_markup_type', 'percentage'),
+    '#options'       => array(
+      'percentage' => t('Percentage (%)'),
+      'multiplier' => t('Multiplier (×)'),
+      'mass'       => t('Addition (!mass)', array('!mass' => '#')),
+    ),
+    '#disabled' => TRUE,
+  );
+
+  // Form to select weight markup amount
+  $form['uc_ups_markups']['uc_ups_weight_markup'] = array(
+    '#type'          => 'textfield',
+    '#title'         => t('Shipping weight markup'),
+    '#default_value' => variable_get('uc_ups_weight_markup', '0'),
+    '#description'   => t('Markup UPS shipping weight on a per-package basis before quote, by weight amount, percentage, or multiplier.'),
+    '#disabled' => TRUE,
   );
 
   // Container for label printing
@@ -207,6 +240,7 @@ function uc_ups_admin_settings() {
     '#description'   => t('Preferences for UPS Shipping Label Printing.  Additional permissions from UPS are required to use this feature.'),
     '#collapsible'   => TRUE,
     '#collapsed'     => TRUE,
+    '#group'         => 'ups-settings',
   );
 
   $period = drupal_map_assoc(array(86400, 302400, 604800, 1209600, 2419200, 0), 'format_interval');
@@ -221,9 +255,24 @@ function uc_ups_admin_settings() {
     '#description'   => t('Controls how long labels are stored on the server before being automatically deleted. Cron must be enabled for automatic deletion. Default is never delete the labels, keep them forever.'),
   );
 
-  $form['#validate'][] = 'uc_ups_admin_settings_validate';
+  // Taken from system_settings_form(). Only, don't use its submit handler.
+  $form['actions']['#type'] = 'actions';
+  $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Save configuration'),
+  );
+  $form['actions']['cancel'] = array(
+    '#markup' => l(t('Cancel'), 'admin/store/settings/quotes'),
+  );
 
-  return system_settings_form($form);
+  if (!empty($_POST) && form_get_errors()) {
+    drupal_set_message(t('The settings have not been saved because of the errors.'), 'error');
+  }
+  if (!isset($form['#theme'])) {
+    $form['#theme'] = 'system_settings_form';
+  }
+
+  return $form;
 }
 
 /**
@@ -232,19 +281,70 @@ function uc_ups_admin_settings() {
  * Requires password only if it hasn't been set.
  *
  * @see uc_ups_admin_settings()
+ * @see uc_ups_admin_settings_submit()
  */
 function uc_ups_admin_settings_validate($form, &$form_state) {
   $old_password = variable_get('uc_ups_password', '');
   if (!$form_state['values']['uc_ups_password']) {
     if ($old_password) {
-      form_set_value($form['uc_ups_password'], $old_password, $form_state);
+      form_set_value($form['uc_ups_credentials']['uc_ups_password'], $old_password, $form_state);
     }
     else {
       form_set_error('uc_ups_password', t('Password field is required.'));
     }
   }
 
-  if (!is_numeric($form_state['values']['uc_ups_markup'])) {
-    form_set_error('uc_ups_markup', t('Rate markup must be a numeric value.'));
+  if (!is_numeric($form_state['values']['uc_ups_rate_markup'])) {
+    form_set_error('uc_ups_rate_markup', t('Rate markup must be a numeric value.'));
   }
+  if (!is_numeric($form_state['values']['uc_ups_weight_markup'])) {
+    form_set_error('uc_ups_weight_markup', t('Weight markup must be a numeric value.'));
+  }
+}
+
+/**
+ * Submit handler for uc_ups_admin_settings().
+ *
+ * Emulates system_settings_form_submit(), but only on a subset of the
+ * form values.
+ *
+ * @see uc_ups_admin_settings()
+ * @see uc_ups_admin_settings_validate()
+ */
+function uc_ups_admin_settings_submit($form, &$form_state) {
+  $fields = array(
+    'uc_ups_access_license',
+    'uc_ups_shipper_number',
+    'uc_ups_user_id',
+    'uc_ups_password',
+    'uc_ups_connection_address',
+    'uc_ups_services',
+    'uc_ups_pickup_type',
+    'uc_ups_pkg_type',
+    'uc_ups_classification',
+    'uc_ups_negotiated_rates',
+    'uc_ups_residential_quotes',
+    'uc_ups_rate_markup_type',
+    'uc_ups_rate_markup',
+    'uc_ups_weight_markup_type',
+    'uc_ups_weight_markup',
+    'uc_ups_label_lifetime',
+    'uc_ups_all_in_one',
+    'uc_ups_unit_system',
+    'uc_ups_insurance',
+  );
+
+  foreach ($fields as $key) {
+    $value = $form_state['values'][$key];
+
+    if (is_array($value) && isset($form_state['values']['array_filter'])) {
+      $value = array_keys(array_filter($value));
+    }
+    variable_set($key, $value);
+  }
+
+  drupal_set_message(t('The configuration options have been saved.'));
+
+  cache_clear_all();
+  drupal_theme_rebuild();
 }

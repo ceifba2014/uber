@@ -68,6 +68,12 @@ function uc_product_schema() {
       'nid' => array('nid'),
     ),
     'primary key' => array('pfid'),
+    'foreign keys' => array(
+      'uc_product' => array(
+        'table' => 'uc_product',
+        'columns' => array('nid' => 'nid'),
+      ),
+    ),
   );
 
   $schema['uc_products'] = array(
@@ -172,13 +178,6 @@ function uc_product_schema() {
         'not null' => TRUE,
         'default' => 1,
       ),
-      'unique_hash' => array(
-        'description' => 'A multi-site unique identifier for a product.',
-        'type' => 'varchar',
-        'length' => 32,
-        'not null' => TRUE,
-        'default' => md5(''),
-      ),
       'ordering' => array(
         'description' => 'The sort criteria for products.',
         'type' => 'int',
@@ -199,195 +198,194 @@ function uc_product_schema() {
       'nid' => array('nid'),
     ),
     'primary key' => array('vid'),
+    'foreign keys' => array(
+      'node' => array(
+        'table' => 'node',
+        'columns' => array(
+          'nid' => 'nid',
+          'vid' => 'vid',
+        ),
+      ),
+    ),
   );
 
   return $schema;
 }
 
 /**
- * Implements hook_install().
+ * Implements hook_enable().
+ *
+ * Sets up the body and a default image field for products.
  */
-function uc_product_install() {
-  drupal_install_schema('uc_product');
+function uc_product_enable() {
+  $body_label = t('Description');
+
+  node_types_rebuild();
+  $types = node_type_get_types();
+  foreach ($types as $type) {
+    if ($type->module == 'uc_product') {
+      node_add_body_field($type, $body_label);
+      uc_product_set_teaser_display($type->type);
+    }
+  }
+
+  uc_product_add_default_image_field();
 }
 
 /**
  * Implements hook_uninstall().
  */
 function uc_product_uninstall() {
-  drupal_uninstall_schema('uc_product');
-
-  db_query("DELETE FROM {variable} WHERE name LIKE 'uc_product_shippable_%%'");
+  db_delete('variable')
+    ->condition(db_or()
+      ->condition('name', 'uc_product_shippable_%', 'LIKE')
+      ->condition('name', 'uc_image_%', 'LIKE'))
+    ->execute();
 
   variable_del('uc_product_nodes_per_page');
   variable_del('uc_product_add_to_cart_qty');
-  variable_del('uc_product_add_to_cart_teaser');
-  variable_del('uc_teaser_add_to_cart_text');
-  variable_del('uc_product_add_to_cart_text');
-  variable_del('uc_product_field_enabled');
-  variable_del('uc_product_field_weight');
 }
 
 /**
  * Implements hook_update_last_removed().
  */
 function uc_product_update_last_removed() {
-  return 12;
-}
-
-function uc_product_update_6000() {
-  $ret = array();
-
-  db_drop_primary_key($ret, 'uc_product_features');
-  db_drop_index($ret, 'uc_product_features', 'nid');
-  db_change_field($ret, 'uc_product_features', 'pfid', 'pfid', array('type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE), array('primary key' => array('pfid')));
-  db_change_field($ret, 'uc_product_features', 'nid', 'nid', array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0), array('indexes' => array('nid' => array('nid'))));
-
-  db_drop_primary_key($ret, 'uc_products');
-  db_change_field($ret, 'uc_products', 'vid', 'vid', array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0), array('primary key' => array('vid')));
-  db_change_field($ret, 'uc_products', 'nid', 'nid', array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_products', 'list_price', 'list_price', array('type' => 'numeric', 'precision' => 10, 'scale' => 2, 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_products', 'cost', 'cost', array('type' => 'numeric', 'precision' => 10, 'scale' => 2, 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_products', 'sell_price', 'sell_price', array('type' => 'numeric', 'precision' => 10, 'scale' => 2, 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_products', 'weight', 'weight', array('type' => 'float', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_products', 'unique_hash', 'unique_hash', array('type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'd41d8cd98f00b204e9800998ecf8427e'));
-  db_change_field($ret, 'uc_products', 'shippable', 'shippable', array('type' => 'int', 'unsigned' => TRUE, 'size' => 'tiny', 'not null' => TRUE, 'default' => 1));
-
-  return $ret;
+  return 6009;
 }
 
 /**
- * Makes sure that those who had the faulty 6000 update have the right
- * precision and scale.
+ * Renames node permissions for the Product type.
  */
-function uc_product_update_6001() {
-  $ret = array();
+function uc_product_update_7000() {
+  db_update('role_permission')
+    ->fields(array(
+      'permission' => 'create product products',
+    ))
+    ->condition('permission', 'create products')
+    ->execute();
 
-  db_change_field($ret, 'uc_products', 'list_price', 'list_price', array('type' => 'numeric', 'precision' => 10, 'scale' => 2, 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_products', 'cost', 'cost', array('type' => 'numeric', 'precision' => 10, 'scale' => 2, 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_products', 'sell_price', 'sell_price', array('type' => 'numeric', 'precision' => 10, 'scale' => 2, 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0));
+  db_update('role_permission')
+    ->fields(array(
+      'permission' => 'edit own product products',
+    ))
+    ->condition('permission', 'edit own products')
+    ->execute();
 
-  return $ret;
+  db_update('role_permission')
+    ->fields(array(
+      'permission' => 'edit all product products',
+    ))
+    ->condition('permission', 'edit all products')
+    ->execute();
+
+  db_update('role_permission')
+    ->fields(array(
+      'permission' => 'delete own product products',
+    ))
+    ->condition('permission', 'delete own products')
+    ->execute();
+
+  db_update('role_permission')
+    ->fields(array(
+      'permission' => 'delete all product products',
+    ))
+    ->condition('permission', 'delete all products')
+    ->execute();
+
+  return t('Renamed node permissions for the Product type.');
 }
 
 /**
- * Makes the numeric fields signed for Postgres compatibility.
+ * Use actual node permissions for product types.
  */
-function uc_product_update_6002() {
-  $ret = array();
+function uc_product_update_7001() {
+  $types = db_query("SELECT pcid FROM {uc_product_classes}")->fetchCol();
+  array_unshift($types, 'product');
+  foreach ($types as $type) {
+    $node_perms = array_keys(node_list_permissions($type));
 
-  db_change_field($ret, 'uc_products', 'list_price', 'list_price', array('type' => 'numeric', 'precision' => 10, 'scale' => 2, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_products', 'cost', 'cost', array('type' => 'numeric', 'precision' => 10, 'scale' => 2, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_products', 'sell_price', 'sell_price', array('type' => 'numeric', 'precision' => 10, 'scale' => 2, 'not null' => TRUE, 'default' => 0));
+    foreach ($node_perms as $node_perm) {
+      $product_perm = str_replace(array('any', 'content'), array('all', 'products'), $node_perm);
 
-  return $ret;
-}
+      foreach (user_roles(FALSE, $product_perm) as $rid => $role) {
+        db_merge('role_permission')
+          ->key(array(
+            'rid' => $rid,
+            'permission' => $node_perm,
+          ))
+          ->fields(array(
+            'module' => 'node',
+          ))
+          ->execute();
+      }
 
-function uc_product_update_6003() {
-  $ret = array();
-
-  // Geez. Can't we get these columns right?
-  db_change_field($ret, 'uc_products', 'list_price', 'list_price', array('type' => 'numeric', 'precision' => 15, 'scale' => 3, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_products', 'cost', 'cost', array('type' => 'numeric', 'precision' => 15, 'scale' => 3, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_products', 'sell_price', 'sell_price', array('type' => 'numeric', 'precision' => 15, 'scale' => 3, 'not null' => TRUE, 'default' => 0));
-
-  return $ret;
-}
-
-/**
- * Handles the image widget upgrade.
- */
-function uc_product_update_6004() {
-  $ret = array();
-
-  if (!variable_get('uc_product_image_widget', NULL)) {
-    if (module_exists('thickbox')) {
-      variable_set('uc_product_image_widget', 'thickbox');
-    }
-    elseif (module_exists('lightbox2')) {
-      variable_set('uc_product_image_widget', 'lightbox2');
-    }
-    $ret[] = array('success' => TRUE, variable_get('uc_product_image_widget', 'No widget') .' was set as the current image widget');
-  }
-
-  return $ret;
-}
-
-/**
- * Sets the uc_image setting to field_image_cache for all existing products.
- */
-function uc_product_update_6005() {
-  $ret = array();
-
-  if (db_table_exists('content_node_field_instance')) {
-    $result = db_query("SELECT type_name FROM {content_node_field_instance} WHERE field_name = 'field_image_cache'");
-    while ($class = db_fetch_object($result)) {
-      variable_set('uc_image_'. $class->type_name, 'field_image_cache');
-    }
-
-    $t = get_t();
-    $ret[] = array('success' => TRUE, $t('field_image_cache set as the Ubercart image for products and product classes.'));
-  }
-
-  return $ret;
-}
-
-/**
- * Changes to signed floats.
- */
-function uc_product_update_6006() {
-  $ret = array();
-
-  $schema = array(
-    'float_spec' => array(
-      'type' => 'float',
-      'not null' => TRUE,
-      'default' => 0.0,
-    ),
-  );
-  db_change_field($ret, 'uc_products', 'weight', 'weight', $schema['float_spec'] + array('description' => "The product's physical weight"));
-  db_change_field($ret, 'uc_products', 'length', 'length', $schema['float_spec'] + array('description' => 'Physical length of the product or its packaging.'));
-  db_change_field($ret, 'uc_products', 'width', 'width', $schema['float_spec'] + array('description' => 'Physical width of the product or its packaging.'));
-  db_change_field($ret, 'uc_products', 'height', 'height', $schema['float_spec'] + array('description' => 'Physical height of the product or its packaging.'));
-
-  return $ret;
-}
-
-/**
- * Updates old product images to the imagefield widget type.
- */
-function uc_product_update_6007() {
-  $ret = array();
-
-  if (db_table_exists('content_node_field_instance')) {
-    $ret[] = update_sql("UPDATE {content_node_field_instance} SET widget_type = 'imagefield_widget' WHERE field_name = 'field_image_cache'");
-  }
-
-  return $ret;
-}
-
-function uc_product_update_6008() {
-  $ret = array();
-
-  if (db_table_exists('imagecache_preset')) {
-    $result = db_result(db_query("SELECT COUNT(presetid) FROM {imagecache_preset} WHERE presetname = 'product_full'"));
-    if (!$result) {
-      $ret[] = update_sql("INSERT INTO {imagecache_preset} (presetname) VALUES ('product_full')");
+      // Clean up.
+      db_delete('role_permission')
+        ->condition('permission', $product_perm)
+        ->execute();
     }
   }
 
-  return $ret;
+  return t('Changed product node permissions to the actual node permissions.');
 }
 
 /**
- * Changes currency fields to numeric(16,5).
+ * Makes sure Image is enabled.
  */
-function uc_product_update_6009() {
-  $ret = array();
+function uc_product_update_7002() {
+  if (module_exists('uc_product') && !module_exists('image')) {
+    module_enable(array('file', 'image'), FALSE);
 
-  db_change_field($ret, 'uc_products', 'list_price', 'list_price', array('type' => 'numeric', 'precision' => 16, 'scale' => 5, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_products', 'cost', 'cost', array('type' => 'numeric', 'precision' => 16, 'scale' => 5, 'not null' => TRUE, 'default' => 0));
-  db_change_field($ret, 'uc_products', 'sell_price', 'sell_price', array('type' => 'numeric', 'precision' => 16, 'scale' => 5, 'not null' => TRUE, 'default' => 0));
+    return t('Enabled Image module.');
+  }
+}
 
-  return $ret;
+/**
+ * Set default display settings for product teasers.
+ */
+function uc_product_update_7003() {
+  $types = db_query("SELECT pcid FROM {uc_product_classes}")->fetchCol();
+  array_unshift($types, 'product');
+  foreach ($types as $type) {
+    uc_product_set_teaser_display($type);
+  }
+
+  variable_del('uc_product_field_enabled');
+  variable_del('uc_product_field_weight');
+
+  return t('Set display settings for product teasers.');
+}
+
+/**
+ * Remove unused variables.
+ */
+function uc_product_update_7004() {
+  variable_del('uc_product_add_to_cart_teaser');
+  variable_del('uc_teaser_add_to_cart_text');
+  variable_del('uc_product_add_to_cart_text');
+}
+
+/**
+ * Remove unused unique hash column.
+ */
+function uc_product_update_7300() {
+  db_drop_field('uc_products', 'unique_hash');
+}
+
+/**
+ * Sets default display settings for product teasers.
+ */
+function uc_product_set_teaser_display($type) {
+  $settings = field_bundle_settings('node', $type);
+  $settings['view_modes']['teaser']['custom_settings'] = TRUE;
+
+  $fields = array('model', 'list_price', 'cost', 'weight', 'dimensions');
+  foreach ($fields as $field) {
+    $settings['extra_fields']['display'][$field]['teaser'] = array(
+      'weight' => 0,
+      'visible' => FALSE,
+    );
+  }
+
+  field_bundle_settings('node', $type, $settings);
 }

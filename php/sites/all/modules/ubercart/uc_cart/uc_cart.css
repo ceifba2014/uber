@@ -3,23 +3,6 @@
  * Styles for uc_cart module.
  */
 
-.solid-border {
-  border: solid 1px #bbb;
-  padding: 5px;
-}
-
-.solid-border td {
-  padding: 5px;
-}
-
-.show-onload {
-  display: none;
-}
-
-.display-none {
-  display: none;
-}
-
 .order-review-table {
   border: solid 1px #999;
   font-size: .9em;
@@ -31,6 +14,7 @@
 .order-review-table td {
   padding-bottom: 0.2em;
   padding-top: 0.1em;
+  vertical-align: top;
 }
 
 .order-review-table .pane-title-row {
@@ -45,7 +29,7 @@
   font-weight: bold;
   padding-left: 3em;
   text-align: right;
-  white-space: right;
+  white-space: nowrap;
 }
 
 .order-review-table .data-col {
@@ -63,9 +47,14 @@
 .order-review-table .review-button-row {
   background-color: #ddd;
   border: solid 1px #999;
+}
+
+.order-review-table .review-button-row td {
+  padding-top: 1em;
   text-align: right;
 }
 
+.order-review-table .review-button-row div,
 .order-review-table .review-button-row form {
   display: inline;
 }
@@ -77,85 +66,67 @@
   text-align: right;
 }
 
+#uc-cart-view-form table {
+  width: 100%;
+}
+
+#uc-cart-view-form td {
+  vertical-align: top;
+}
+
 #uc-cart-view-form img {
-  float: left;
   padding-right: .8em;
-}
-
-#line-items-div table {
-  width: auto;
-}
-
-#line-items-div td {
-  padding: 0em 1em;
-}
-
-#line-items-div tbody {
-  border-top: 0px;
+  float: left;
 }
 
 .address-book-icon {
-  margin-left: 2px;
   position: relative;
+  margin-left: 2px;
   top: 2px;
-}
-
-.uc-credit-cctype {
-  vertical-align: middle;
-  margin-bottom: 3px;
-}
-
-#paypal-includes {
-  font-weight: bold;
 }
 
 /**
  * CSS rules for the cart form at /cart.
  */
-#cart-form-products {
-  border: solid 1px #bbb;
-  margin-top: .5em;
+#uc-cart-view-form th {
+  white-space: nowrap;
 }
 
-#cart-form-products td.desc {
+#uc-cart-view-form td.desc {
   width: 100%;
 }
 
-#cart-form-products td.total,
-#cart-form-products td.subtotal {
+#uc-cart-view-form td.total,
+#uc-cart-view-form td.subtotal {
   white-space: nowrap;
 }
 
-#cart-form-buttons {
-  border: solid 1px #bbb;
-  margin: .5em 0em;
+#uc-cart-view-form .form-actions {
+  margin-top: 0;
   text-align: right;
 }
 
-#cart-form-pane #uc-cart-view-form {
-  margin-bottom: .5em;
-}
-
-#cart-form-buttons .form-button,
-#cart-form-buttons .form-submit {
-  margin: .5em .5em .5em 0em;
-}
-
-#update-checkout-buttons {
-  float: right;
-}
-
-#continue-shopping-link {
+#uc-cart-view-form .form-actions a {
   float: left;
-  left: .75em;
-  position: relative;
-  top: .5em;
+  margin: .5em;
 }
 
-#continue-shopping-button {
+#uc-cart-view-form #edit-continue-shopping {
+  float: left;
   margin-left: .5em;
-  margin-right: 100%;
-  white-space: nowrap;
+}
+
+#uc-cart-view-form .form-actions input {
+  vertical-align: middle;
+}
+
+.uc-cart-checkout-button {
+  float: right;
+  clear: right;
+}
+
+.uc-cart-checkout-button-separator {
+  text-align: center;
 }
 
 /**
@@ -183,52 +154,21 @@ td.subtotal {
   font-weight: bold;
 }
 
-
 /**
  * CSS rules for the default checkout panes.
  */
-.address-pane-table tbody {
-  border-top: 0px;
+.uc-cart-checkout-form .uc-store-address-field .form-item label {
+  padding: 5px 6px 6px;
 }
 
-.address-pane-table table td {
-  padding: 2px;
-}
-
-.field-label {
-  font-weight: bold;
-  text-align: right;
-}
-
-.address-pane-table {
-  margin-left: auto;
-  margin-right: auto;
-}
-
-.address-pane-table .form-item {
-  display: inline;
-}
-
-/**
- * CSS rules for payment details tables.
- */
-.inline-pane-table tbody {
-  border-top: 0em;
-}
-
-.inline-pane-table .form-item {
-  display: inline;
+.uc-cart-checkout-form .form-item {
+  margin-bottom: 2px;
+  margin-top: 2px;
 }
 
 /**
  * CSS rules for the bottom of the checkout form at /cart/checkout.
  */
-#checkout-form-bottom {
-  border: solid 1px #bbb;
+.uc-cart-checkout-form .form-actions {
   text-align: right;
-}
-
-#checkout-form-bottom .form-button,
-#checkout-form-bottom .form-submit {
-  margin: .5em .5em .5em 0em;
 }

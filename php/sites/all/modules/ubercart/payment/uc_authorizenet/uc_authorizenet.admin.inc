@@ -2,14 +2,17 @@
 
 /**
  * @file
- * Includes page callbacks for administrative recurring fee operation pages.
+ * Page callbacks for administrative recurring fee operation pages.
  */
 
-
-// Displays a form to update a subscriptions's CC info.
-function uc_authorizenet_arb_admin_update_form($form_state, $rfid) {
+/**
+ * Displays a form to update a subscriptions's CC info.
+ *
+ * @see uc_authorizenet_arb_admin_update_form_submit()
+ * @ingroup forms
+ */
+function uc_authorizenet_arb_admin_update_form($form, &$form_state, $rfid) {
   $order = new stdClass();
-  $form = array();
 
   $fee = uc_recurring_fee_load('user', $rfid);
 
@@ -18,7 +21,7 @@ function uc_authorizenet_arb_admin_update_form($form_state, $rfid) {
     '#value' => $rfid,
   );
   $form['description'] = array(
-    '#value' => '<div>'. t('Subscription ID: @subscription_id', array('@subscription_id' => $fee['data'])) .'</div>',
+    '#markup' => '<div>' . t('Subscription ID: @subscription_id', array('@subscription_id' => $fee['data'])) . '</div>',
   );
 
   $form['cc_data'] = array(
@@ -30,7 +33,8 @@ function uc_authorizenet_arb_admin_update_form($form_state, $rfid) {
   $form['cc_data'] += uc_payment_method_credit_form(array(), $order);
   unset($form['cc_data']['cc_policy']);
 
-  $form['submit'] = array(
+  $form['actions'] = array('#type' => 'actions');
+  $form['actions']['submit'] = array(
     '#type' => 'submit',
     '#value' => t('Update'),
     '#suffix' => l(t('Cancel'), 'admin/store/orders/recurring'),
@@ -39,6 +43,11 @@ function uc_authorizenet_arb_admin_update_form($form_state, $rfid) {
   return $form;
 }
 
+/**
+ * Form submission handler for uc_authorizenet_arb_admin_update_form().
+ *
+ * @see uc_authorizenet_arb_admin_update_form()
+ */
 function uc_authorizenet_arb_admin_update_form_submit($form, &$form_state) {
   $fee = uc_recurring_fee_load('user', $form_state['values']['rfid']);
 
@@ -46,7 +55,7 @@ function uc_authorizenet_arb_admin_update_form_submit($form, &$form_state) {
     'payment' => array(
       'creditCard' => array(
         'cardNumber' => $form_state['values']['cc_data']['cc_number'],
-        'expirationDate' => $form_state['values']['cc_data']['cc_exp_year'] .'-'. $form_state['values']['cc_data']['cc_exp_month'],
+        'expirationDate' => $form_state['values']['cc_data']['cc_exp_year'] . '-' . $form_state['values']['cc_data']['cc_exp_month'],
       ),
     ),
   );
@@ -64,8 +73,13 @@ function uc_authorizenet_arb_admin_update_form_submit($form, &$form_state) {
   $form_state['redirect'] = 'admin/store/orders/recurring';
 }
 
-// Displays a confirm form for cancelling a subscription.
-function uc_authorizenet_arb_admin_cancel_form($form_state, $rfid) {
+/**
+ * Displays a confirm form for canceling a subscription.
+ *
+ * @see uc_authorizenet_arb_admin_cancel_form_submit()
+ * @ingroup forms
+ */
+function uc_authorizenet_arb_admin_cancel_form($form, &$form_state, $rfid) {
   $form['rfid'] = array(
     '#type' => 'value',
     '#value' => $rfid,
@@ -74,6 +88,11 @@ function uc_authorizenet_arb_admin_cancel_form($form_state, $rfid) {
   return confirm_form($form, t('Are you sure you wish to cancel this subscription?'), 'admin/store/orders/recurring', NULL, t('Confirm'), t('Cancel'));
 }
 
+/**
+ * Form submission handler for uc_authorizenet_arb_admin_cancel_form().
+ *
+ * @see uc_authorizenet_arb_admin_cancel_form()
+ */
 function uc_authorizenet_arb_admin_cancel_form_submit($form, &$form_state) {
   $fee = uc_recurring_fee_load('user', $form_state['values']['rfid']);
 
@@ -81,7 +100,7 @@ function uc_authorizenet_arb_admin_cancel_form_submit($form, &$form_state) {
 
   // If the cancellation was successful...
   if ($result) {
-    drupal_set_message(t('Subscription cancelled through Authorize.Net.'));
+    drupal_set_message(t('Subscription canceled through Authorize.Net.'));
 
     // Set the fee's recurring charges to 0.
     uc_recurring_fee_cancel($fee['rfid']);

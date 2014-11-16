@@ -2,18 +2,63 @@
  * @file
  * Styles for uc_order module.
  */
+
+.uc-order-action img {
+  padding: 0 3px;
+  position: relative;
+  top: 3px;
+}
+
+.view-uc-orders .form-item {
+  padding-top: 4px;
+}
+
+.view-uc-orders #edit-order-id {
+  width: 10em;
+}
+
+.view-uc-orders #edit-delivery-first-name-wrapper,
+.view-uc-orders #edit-created-wrapper {
+  clear: left;
+}
+
+.view-uc-orders #edit-created-min-wrapper,
+.view-uc-orders #edit-created-max-wrapper {
+  float: left;
+}
+
+.view-uc-orders .form-type-date-select .date-padding {
+  padding: 0 22px 0 0;
+}
+
+.view-uc-orders .form-type-date-select {
+  padding-top: 0;
+}
+
+.view-uc-orders tbody tr:hover {
+  background-color: #ddd;
+}
+
+.view-uc-orders tbody td.views-field-order-total {
+  text-align: right;
+}
+
+.view-uc-orders tbody td.views-field-created {
+  text-align: center;
+}
+
 .order-overview-form {
   float: left;
-  padding: 0em 2em 0em 0em;
+  padding: 0 2em 0 0;
 }
 
 .order-overview-form .form-item {
-  margin-bottom: 0em;
+  margin-bottom: 0;
 }
 
 .order-overview-form #uc-order-select-form,
 .order-overview-form #uc-order-admin-sort-form {
-  margin-bottom: 0em;
+  margin-bottom: 0;
 }
 
 .uc-orders-table {
@@ -21,7 +66,6 @@
   width: 100%;
 }
 
-.uc-orders-table td,
 .uc-orders-table thead th {
   white-space: nowrap;
 }
@@ -41,7 +85,7 @@
 }
 
 .order-admin-icons img {
-  padding: 0px 3px;
+  padding: 0 3px;
   position: relative;
   top: 3px;
 }
@@ -51,9 +95,9 @@
   border-style: solid;
   border-width: 1px;
   line-height: 1.1em;
-  margin: .5em;;
+  margin: .5em;
   padding: .5em;
-  width: auto;
+  position: relative;
 }
 
 .order-pane thead {
@@ -61,7 +105,17 @@
 }
 
 .order-pane tbody {
-  border-top: 0px;
+  border-top: 0;
+}
+
+.order-pane-icons {
+  position: absolute;
+  right: .5em;
+  top: 5px;
+}
+
+.order-pane-icons img {
+  cursor: pointer;
 }
 
 .order-pane-title {
@@ -74,8 +128,12 @@
 }
 
 .abs-left {
-  /*float: left;*/
   clear: left;
+}
+
+.order-pane.abs-left {
+  border: 0;
+  padding: .5em 0;
 }
 
 .pos-right {
@@ -93,6 +151,26 @@
 
 .full-width {
   width: 100%;
+}
+
+.order-pane .uc-store-address-field .form-item {
+  padding: 0;
+}
+
+.order-pane .uc-store-address-field .form-item label {
+  padding: 2px 4px;
+  width: 12em;
+}
+
+.order-pane #edit-add-line-item,
+.order-pane #edit-add-line-item .form-item {
+  float: left;
+  margin-right: 1em;
+  padding-top: 0;
+}
+
+.order-pane .line-item-table {
+  width: auto;
 }
 
 .order-pane-table th {
@@ -122,19 +200,26 @@
   white-space: nowrap;
 }
 
+#order-edit-products .form-remove {
+  cursor: pointer;
+  margin-top: 4px;
+}
+
 .uc-order-comments td {
   vertical-align: top;
 }
 
-.uc-order-comments td.date,
-.uc-order-comments td.status {
+.uc-order-comments .date,
+.uc-order-comments .user,
+.uc-order-comments .notified,
+.uc-order-comments .status {
   text-align: center;
   white-space: nowrap;
 }
 
-.uc-order-comments td.message {
-  width: 100%;
- }
+.uc-order-comments .message {
+  width: 80%;
+}
 
 .order-edit-table {
   width: auto;
@@ -152,35 +237,17 @@
 .address-select-box {
   background-color: #ddd;
   border: solid 1px #999;
+  margin-bottom: 1em;
   padding-bottom: 1em;
   padding-left: 1em;
-  margin-bottom: 1em;
   width: auto;
 }
 
 .customer-select-box {
   background-color: #ddd;
   border: solid 1px #999;
-  padding: 1em;
   margin-top: 1em;
-  width: auto;
-}
-
-.product-select-box {
-  background-color: #ddd;
-  border: solid 1px #999;
-  margin-right: auto;
-  margin-bottom: 1em;
-  width: auto;
-}
-
-.product-select-box2 {
-  background-color: #ddd;
-  border: solid 1px #999;
-  margin-right: auto;
-  margin-bottom: 1em;
-  padding-left: 1em;
-  padding-bottom: 1em;
+  padding: 1em;
   width: auto;
 }
 
@@ -200,6 +267,7 @@
 
 .line-item-table .li-amount {
   text-align: right;
+  white-space: nowrap;
 }
 
 .line-item-table .form-item {
@@ -207,7 +275,7 @@
 }
 
 .order-review-table tbody {
-  border-top: 0px;
+  border-top: 0;
 }
 
 .order-pane-table .product-description {
@@ -216,43 +284,44 @@
 
 /* Move to uc_credit.css eventually... */
 .order-pane #uc-credit-order-view-form {
+  margin-bottom: 0;
   margin-top: .5em;
-  margin-bottom: 0em;
 }
 
 #uc-credit-order-view-form .form-submit {
-  margin: 0em;
+  margin: 0;
 }
 
 .order-pane #uc-order-view-update-form {
   margin-bottom: 1em;
 }
 
-.update-controls {
-  padding-top: 1em;
-}
-
-.update-controls div {
-  padding-right: 1em;
-}
-
-.update-controls div,
-.update-controls label {
+#uc-order-view-update-form #edit-controls label {
   display: inline;
 }
 
-.update-controls .form-submit {
-  margin: 0em;
+#uc-order-view-update-form #edit-controls .form-type-checkbox {
+  padding-top: 8px;
+}
+
+#uc-order-view-update-form #edit-controls .form-submit {
+  margin: 0;
 }
 
 .address-select-box #uc-order-address-book-form {
-  margin-bottom: 0em;
+  margin-bottom: 0;
 }
 
 .order-pane.abs-left .form-submit {
-  margin: 0.5em 0.5em 0.5em 0em;
+  margin: 0.5em 0.5em 0.5em 0;
 }
 
 .order-pane #customer-select form {
-  margin-bottom: 0em;
+  margin-bottom: 0;
+}
+
+#order-pane-print_button {
+  border: 1px solid #bbb;
+  padding: 0.5em 0.5em 0.5em 2em;
+  background: url("../uc_store/images/print.gif") no-repeat 0.5em 50%;
 }

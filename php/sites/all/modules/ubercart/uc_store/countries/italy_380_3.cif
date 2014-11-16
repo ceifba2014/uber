@@ -1,12 +1,20 @@
 <?php
 
 /**
-* First implement hook_install() using the name of the country as the base of
+* Implements hook_install() using the name of the country as the base of
 * the function name.
 */
 function italy_install() {
   // Make the entry in the country table.
-  db_query("INSERT INTO {uc_countries} (country_id, country_name, country_iso_code_2, country_iso_code_3, version) VALUES (380, 'Italy', 'IT', 'ITA', 3)");
+  db_insert('uc_countries')
+    ->fields(array(
+      'country_id' => 380,
+      'country_name' => 'Italy',
+      'country_iso_code_2' => 'IT',
+      'country_iso_code_3' => 'ITA',
+      'version' => 3,
+    ))
+    ->execute();
 
   // Make the entries in the zones table.
   $zones = array(
@@ -124,19 +132,28 @@ function italy_install() {
     array(380, 'CTV', 'Città del Vaticano'),
   );
 
+  $query = db_insert('uc_zones')->fields(array('zone_country_id', 'zone_code', 'zone_name'));
   foreach ($zones as $zone) {
-    db_query("INSERT INTO {uc_zones} (zone_country_id, zone_code, zone_name) VALUES (%d, '%s', '%s')", $zone);
+    $query->values($zone);
   }
+  $query->execute();
 
-
-  uc_set_address_format(380,
-    "!company\r\n!first_name !last_name\r\n!street1\r\n!street2"
-   ."\r\n!postal_code, !city\r\n!zone_code\r\n!country_name_if");
+  // Set address format
+  uc_set_address_format(
+    380,
+    "!company\r\n".
+    "!first_name !last_name\r\n".
+    "!street1\r\n".
+    "!street2\r\n".
+    "!postal_code, !city\r\n".
+    "!zone_code\r\n".
+    "!country_name_if"
+  );
 }
 
 
 /**
-* If necessary, implement hook_update() with $version being the only argument.
+* Implements hook_update() with $version being the only argument.
 * Add a new case for each version update, and be sure to always include the
 * latest changes in the install function.
 */
@@ -150,9 +167,11 @@ function italy_update($version) {
         array(380, 'OT', 'Olbia-Tempio'),
       );
 
+      $query = db_insert('uc_zones')->fields(array('zone_country_id', 'zone_code', 'zone_name'));
       foreach ($zones as $zone) {
-        db_query("INSERT INTO {uc_zones} (zone_country_id, zone_code, zone_name) VALUES (%d, '%s', '%s')", $zone);
+        $query->values($zone);
       }
+      $query->execute();
 
       break;
 
@@ -163,9 +182,11 @@ function italy_update($version) {
         array(380, 'MB', 'Monza e Brianza'),
       );
 
+      $query = db_insert('uc_zones')->fields(array('zone_country_id', 'zone_code', 'zone_name'));
       foreach ($zones as $zone) {
-        db_query("INSERT INTO {uc_zones} (zone_country_id, zone_code, zone_name) VALUES (%d, '%s', '%s')", $zone);
+        $query->values($zone);
       }
+      $query->execute();
 
       $zones = array(
         array(380, 'MS', 'Massa e Carrara'),
@@ -175,7 +196,11 @@ function italy_update($version) {
       );
 
       foreach ($zones as $zone) {
-        db_query("UPDATE {uc_zones} SET zone_name = '%s' WHERE zone_code = '%s' AND zone_country_id = 380", $zone[2], $zone[1]);
+        db_update('uc_zones')
+          ->fields(array('zone_name' => $zone[2]))
+          ->condition('zone_code', $zone[1])
+          ->condition('zone_country_id', 380)
+          ->execute();
       }
 
       break;

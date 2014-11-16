@@ -3,11 +3,15 @@
 function saint_pierre_miquelon_install() {
   // Make the entry in the country table.
   // VALUES = Country ID, Country Name, 2-digit Code, 3-digit Code, File Version
-
-
-   db_query("INSERT INTO {uc_countries} (country_id, country_name, country_iso_code_2, country_iso_code_3, version)
-    VALUES ('666', 'Saint Pierre and Miquelon', 'PM', 'SPM', 1)");
-
+  db_insert('uc_countries')
+    ->fields(array(
+      'country_id' => 666,
+      'country_name' => 'Saint Pierre and Miquelon',
+      'country_iso_code_2' => 'PM',
+      'country_iso_code_3' => 'SPM',
+      'version' => 1,
+    ))
+    ->execute();
 
   // No zones
 

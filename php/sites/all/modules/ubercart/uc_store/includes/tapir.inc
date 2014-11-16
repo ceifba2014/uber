@@ -6,13 +6,14 @@
  */
 
 /**
- * Load a table element for use in the Forms API or simply drupal_render().
+ * Loads a table element for use in the Forms API or simply drupal_render().
  *
  * @param $table_id
  *   The string identifying the table you want to display, like a form ID.
  * @param ...
  *   Any additional arguments will be passed on to the table builder function
- *     specified as the $table_id.
+ *   specified as the $table_id.
+ *
  * @return
  *   The table form element.
  */
@@ -62,11 +63,15 @@ function tapir_gather_rows($element) {
  *
  * @param $form
  *   The array of form information needing to be rendered into the table.
+ *
  * @return
  *   The table output rendered in HTML.
+ *
  * @ingroup themeable
  */
-function theme_tapir_table($element) {
+function theme_tapir_table($variables) {
+  $element = $variables['element'];
+
   $header = array();
   $rows = array();
 
@@ -85,17 +90,6 @@ function theme_tapir_table($element) {
   foreach ($element['#rows'] as $data) {
     $attributes = array();
     $row = array();
-
-    /* // If the row combines cell data with attributes...
-    if (isset($data['data'])) {
-      // Set the attributes array to be everything in the row array except the
-      // data array.
-      $attributes = $data;
-      unset($attributes['data']);
-
-      // Filter the data array down to just the cell data.
-      $data = $data['data'];
-    } */
 
     // Loop through each column in the header.
     foreach ($element['#columns'] as $col_id => $col_data) {
@@ -131,27 +125,16 @@ function theme_tapir_table($element) {
   }
 
   // Return the rendered table.
-  return theme('table', $header, $rows, (array)$element['#attributes'], $element['#title']) . (isset($element['#children']) ? $element['#children'] : '');
-}
-
-/**
- * Build an ORDER BY clause for a table's SELECT query based on the table's
- *   columns.
- *
- * @param $columns
- *   The column array from a TAPIr table array.
- * @return
- *   The result of a tablesort_sql() call on the header info for this table.
- */
-function tapirsort_sql($columns) {
-  $header = array();
-
-  // Loop through the columns array...
-  foreach ($columns as $column) {
-    // And build a header array based on column information.
-    $header[] = $column['cell'];
+  $options = array(
+    'header' => $header,
+    'rows' => $rows,
+  );
+  if (isset($element['#attributes'])) {
+    $options['attributes'] = (array)$element['#attributes'];
+  }
+  if (isset($element['#title'])) {
+    $options['caption'] = $element['#title'];
   }
 
-  // Return the result of a tablesort on our header.
-  return tablesort_sql($header);
+  return theme('table', $options) . drupal_render_children($element);
 }

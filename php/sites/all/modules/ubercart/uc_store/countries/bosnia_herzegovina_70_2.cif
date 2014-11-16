@@ -7,7 +7,15 @@
 function bosnia_herzegovina_install() {
   // Make the entry in the country table.
   // VALUES = Country ID, Country Name, 2-digit Code, 3-digit Code, File Version
-  db_query("INSERT INTO {uc_countries} (country_id, country_name, country_iso_code_2, country_iso_code_3, version) VALUES (70, 'Bosnia and Herzegovina', 'BA', 'BIH', 2)");
+  db_insert('uc_countries')
+    ->fields(array(
+      'country_id' => 70,
+      'country_name' => 'Bosnia and Herzegovina',
+      'country_iso_code_2' => 'BA',
+      'country_iso_code_3' => 'BIH',
+      'version' => 2,
+    ))
+    ->execute();
 
   // Make the entries in the zones table.
   $zones = array(
@@ -25,9 +33,11 @@ function bosnia_herzegovina_install() {
     array(70, '04', 'Zenicko-Dobojski Kanton'),
   );
 
+  $query = db_insert('uc_zones')->fields(array('zone_country_id', 'zone_code', 'zone_name'));
   foreach ($zones as $zone) {
-    db_query("INSERT INTO {uc_zones} (zone_country_id, zone_code, zone_name) VALUES (%d, '%s', '%s')", $zone);
+    $query->values($zone);
   }
+  $query->execute();
 
   // Set address format
   uc_set_address_format(
@@ -45,7 +55,11 @@ function bosnia_herzegovina_update($version) {
   switch ($version) {
     case 2:
       // Correct ISO-3166-1 country name
-      db_query("UPDATE {uc_countries} SET country_name = 'Bosnia and Herzegovina' WHERE country_id = 70");
+      db_update('uc_countries')
+        ->fields(array('country_name' => 'Bosnia and Herzegovina'))
+        ->condition('country_id', 70)
+        ->execute();
+
       break;
   }
 }

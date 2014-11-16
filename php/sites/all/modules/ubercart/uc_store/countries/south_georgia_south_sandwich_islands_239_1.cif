@@ -3,10 +3,15 @@
 function south_georgia_south_sandwich_islands_install() {
   // Make the entry in the country table.
   // VALUES = Country ID, Country Name, 2-digit Code, 3-digit Code, File Version
-
-   db_query("INSERT INTO {uc_countries} (country_id, country_name, country_iso_code_2, country_iso_code_3, version)
-    VALUES ('239', 'South Georgia and the South Sandwich Islands', 'GS', 'SGS', 1)");
-
+  db_insert('uc_countries')
+    ->fields(array(
+      'country_id' => 239,
+      'country_name' => 'South Georgia and the South Sandwich Islands',
+      'country_iso_code_2' => 'GS',
+      'country_iso_code_3' => 'SGS',
+      'version' => 1,
+    ))
+    ->execute();
 
   // No zones
 

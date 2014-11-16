@@ -3,11 +3,15 @@
 function qatar_install() {
   // Make the entry in the country table.
   // VALUES = Country ID, Country Name, 2-digit Code, 3-digit Code, File Version
-
-
-   db_query("INSERT INTO {uc_countries} (country_id, country_name, country_iso_code_2, country_iso_code_3, version)
-     VALUES ('634', 'Qatar', 'QA', 'QAT', 1)");
-
+  db_insert('uc_countries')
+    ->fields(array(
+      'country_id' => 634,
+      'country_name' => 'Qatar',
+      'country_iso_code_2' => 'QA',
+      'country_iso_code_3' => 'QAT',
+      'version' => 1,
+    ))
+    ->execute();
 
   // Make the entries in the zones table.
   $zones = array(
@@ -22,9 +26,11 @@ function qatar_install() {
     array(634, 'QA-US', 'Umm Şalāl'),
   );
 
+  $query = db_insert('uc_zones')->fields(array('zone_country_id', 'zone_code', 'zone_name'));
   foreach ($zones as $zone) {
-    db_query("INSERT INTO {uc_zones} (zone_country_id, zone_code, zone_name) VALUES (%d, '%s', '%s')", $zone);
+    $query->values($zone);
   }
+  $query->execute();
 
   // Set address format
   uc_set_address_format(

@@ -9,19 +9,11 @@
  * Displays the sales tax report form and table.
  */
 function uc_tax_report_report_page($start_date = NULL, $end_date = NULL, $status = NULL) {
-  // "Now" timestamp
-  $time = time();
-
-  // Site time minus GMT time, in seconds
-  $timezone_offset = _uc_reports_timezone_offset();
-
-  $format = variable_get('uc_date_format_default', 'm/d/Y');
-
   // Use default report parameters if we don't detect values in the URL.
   if ($start_date == '') {
     $args = array(
-      'start_date' => gmmktime(0, 0, 0, format_date($time, 'custom', 'n', $timezone_offset), 1, format_date($time, 'custom', 'Y', $timezone_offset) - 1) - $timezone_offset,
-      'end_date' => time(),
+      'start_date' => mktime(0, 0, 0, date('n'), 1, date('Y') - 1),
+      'end_date' => REQUEST_TIME,
       'status' => FALSE,
     );
   }
@@ -29,16 +21,16 @@ function uc_tax_report_report_page($start_date = NULL, $end_date = NULL, $status
     $args = array(
       'start_date' => $start_date,
       'end_date' => $end_date,
-      'status' => explode(',', urldecode($status)),
+      'status' => explode(',', $status),
     );
   }
 
   // Pull the order statuses into a SQL friendly array.
   if ($args['status'] === FALSE) {
-    $order_statuses = _uc_reports_order_statuses();
+    $order_statuses = uc_reports_order_statuses();
   }
   else {
-    $order_statuses = "('". implode("', '", $args['status']) ."')";
+    $order_statuses = $args['status'];
   }
 
   // Build the header for the report table.
@@ -49,13 +41,13 @@ function uc_tax_report_report_page($start_date = NULL, $end_date = NULL, $status
 
   // Query to get the tax line items in this date range
 
-  $result = db_query("SELECT ucoli.amount, ucoli.title, ucoli.data FROM {uc_orders} ucord LEFT JOIN {uc_order_statuses} ON order_status_id = order_status LEFT JOIN {uc_order_line_items} ucoli ON ucord.order_id = ucoli.order_id WHERE %d <= created AND created <= %d AND order_status IN $order_statuses AND ucoli.type = 'tax'", $args['start_date'], $args['end_date']);
+  $result = db_query("SELECT ucoli.amount, ucoli.title, ucoli.data FROM {uc_orders} ucord LEFT JOIN {uc_order_statuses} ON order_status_id = order_status LEFT JOIN {uc_order_line_items} ucoli ON ucord.order_id = ucoli.order_id WHERE :start <= created AND created <= :end AND order_status IN (:statuses) AND ucoli.type = :type", array(':start' => $args['start_date'], ':end' => $args['end_date'], ':statuses' => $order_statuses, ':type' => 'tax'));
 
   // add up the amounts by jurisdiction
   $totals = array();
   $no_meta_totals = array();
 
-  while ($item = db_fetch_object($result)) {
+  foreach ($result as $item) {
     $name = trim($item->title);
     $amount = floatval($item->amount);
 
@@ -107,26 +99,19 @@ function uc_tax_report_report_page($start_date = NULL, $end_date = NULL, $status
   $amount = 0;
   $star_legend = '';
 
-  $context = array(
-    'revision' => 'themed-original',
-    'type' => 'amount',
-  );
   foreach ($totals as $line) {
     $row = array(
       $line['name'],
       $line['jurisdiction'],
       number_format($line['rate'] * 100, 3) . '%',
-      uc_price($line['taxable_amount'], $context),
-      uc_price($line['amount'], $context),
+      theme('uc_price', array('price' => $line['taxable_amount'])),
+      theme('uc_price', array('price' => $line['amount'])),
     );
     $rows[] = $row;
-    $csv_rows[] = array(
-      $line['name'],
-      $line['jurisdiction'],
-      number_format($line['rate'] * 100, 3) . '%',
-      $line['taxable_amount'],
-      $line['amount'],
-    );
+    // Remove HTML for CSV files.
+    $row[3] = $line['taxable_amount'];
+    $row[4] = $line['amount'];
+    $csv_rows[] = $row;
     $taxable_amount += $line['taxable_amount'];
     $amount += $line['amount'];
   }
@@ -137,16 +122,12 @@ function uc_tax_report_report_page($start_date = NULL, $end_date = NULL, $status
       '*',
       '*',
       '*',
-      uc_price($line['amount'], $context),
+      theme('uc_price', array('price' => $line['amount'])),
     );
     $rows[] = $row;
-    $csv_rows[] = $row = array(
-      $line['name'],
-      '*',
-      '*',
-      '*',
-      $line['amount'],
-    );
+    // Remove HTML for CSV files.
+    $row[4] = $line['amount'];
+    $csv_rows[] = $row;
     $amount += $line['amount'];
     // We have at least one no-meta-data line. Explain why.
     $star_legend = t('* No information on jurisdiction, tax rate, or taxable amount is available for this line.');
@@ -157,31 +138,43 @@ function uc_tax_report_report_page($start_date = NULL, $end_date = NULL, $status
     t('Total'),
     '',
     '',
-    uc_price($taxable_amount, $context),
-    uc_price($amount, $context),
+    theme('uc_price', array('price' => $taxable_amount)),
+    theme('uc_price', array('price' => $amount)),
   );
   $rows[] = $row;
-  $csv_rows[] = array(
-    t('Total'),
-    '',
-    '',
-    $taxable_amount,
-    $amount,
-  );
+  // Removes HTML for CSV files.
+  $row[3] = $taxable_amount;
+  $row[4] = $amount;
+  $csv_rows[] = $row;
 
   // Cache the CSV export.
+  module_load_include('inc', 'uc_reports', 'uc_reports.admin');
   $csv_data = uc_reports_store_csv('uc_tax_report', $csv_rows);
 
   // Build the page output holding the form, table, and CSV export link.
-  $output = drupal_get_form('uc_tax_report_params_form', $args, $args['status']);
-  $output .= theme('table', $header, $rows, array('width' => '100%', 'class' => 'uc-sales-table'));
+  $build['form'] = drupal_get_form('uc_tax_report_params_form', $args, $args['status']);
+  $build['report'] = array(
+    '#theme' => 'table',
+    '#header' => $header,
+    '#rows' => $rows,
+    '#attributes' => array('width' => '100%', 'class' => array('uc-sales-table')),
+  );
+
   if ($star_legend) {
-    $output .= '<div class="uc-reports-note"><p>' . $star_legend . '</p></div>';
+    $build['legend'] = array(
+      '#markup' => $star_legend,
+      '#prefix' => '<div class="uc-reports-note"><p>',
+      '#suffix' => '</p></div>',
+    );
   }
 
-  $output .= '<div class="uc-reports-links">'. l(t('Export to CSV file.'), 'admin/store/reports/getcsv/'. $csv_data['report'] .'/'. $csv_data['user']) .'</div>';
+  $build['export_csv'] = array(
+    '#markup' => l(t('Export to CSV file.'), 'admin/store/reports/getcsv/' . $csv_data['report'] . '/' . $csv_data['user']),
+    '#prefix' => '<div class="uc-reports-links">',
+    '#suffix' => '</div>',
+  );
 
-  return $output;
+  return $build;
 }
 
 /**
@@ -191,12 +184,7 @@ function uc_tax_report_report_page($start_date = NULL, $end_date = NULL, $status
  * @see uc_tax_report_params_form_submit()
  * @ingroup forms
  */
-function uc_tax_report_params_form($form_state, $values) {
-  $form = array();
-
-  // Site time minus GMT time, in seconds
-  $timezone_offset = _uc_reports_timezone_offset();
-
+function uc_tax_report_params_form($form, &$form_state, $values) {
   $form['params'] = array(
     '#type' => 'fieldset',
     '#title' => t('Customize tax report parameters'),
@@ -209,18 +197,18 @@ function uc_tax_report_params_form($form_state, $values) {
     '#type' => 'date',
     '#title' => t('Start date'),
     '#default_value' => array(
-      'month' => format_date($values['start_date'], 'custom', 'n', $timezone_offset),
-      'day' => format_date($values['start_date'], 'custom', 'j', $timezone_offset),
-      'year' => format_date($values['start_date'], 'custom', 'Y', $timezone_offset),
+      'month' => format_date($values['start_date'], 'custom', 'n'),
+      'day' => format_date($values['start_date'], 'custom', 'j'),
+      'year' => format_date($values['start_date'], 'custom', 'Y'),
     ),
   );
   $form['params']['end_date'] = array(
     '#type' => 'date',
     '#title' => t('End date'),
     '#default_value' => array(
-      'month' => format_date($values['end_date'], 'custom', 'n', $timezone_offset),
-      'day' => format_date($values['end_date'], 'custom', 'j', $timezone_offset),
-      'year' => format_date($values['end_date'], 'custom', 'Y', $timezone_offset),
+      'month' => format_date($values['end_date'], 'custom', 'n'),
+      'day' => format_date($values['end_date'], 'custom', 'j'),
+      'year' => format_date($values['end_date'], 'custom', 'Y'),
     ),
   );
 
@@ -231,20 +219,21 @@ function uc_tax_report_params_form($form_state, $values) {
 
   $stat = $values['status'];
   if ($stat === FALSE) {
-    $stat = variable_get('uc_reports_reported_statuses', array('completed'));
+    $stat = uc_reports_order_statuses();
   }
 
   $form['params']['status'] = array(
     '#type' => 'select',
     '#title' => t('Order statuses'),
-    '#description' => t('Only orders with selected statuses will be included in the report.') .'<br />'. t('Hold Ctrl + click to select multiple statuses.'),
+    '#description' => t('Only orders with selected statuses will be included in the report.') . '<br />' . t('Hold Ctrl + click to select multiple statuses.'),
     '#options' => $options,
     '#default_value' => $stat,
     '#multiple' => TRUE,
     '#size' => 5,
   );
 
-  $form['params']['submit'] = array(
+  $form['params']['actions'] = array('#type' => 'actions');
+  $form['params']['actions']['submit'] = array(
     '#type' => 'submit',
     '#value' => t('Update report'),
   );
@@ -256,6 +245,7 @@ function uc_tax_report_params_form($form_state, $values) {
  * Ensures an order status is selected.
  *
  * @see uc_tax_report_params_form()
+ * @see uc_tax_report_params_form_submit()
  */
 function uc_tax_report_params_form_validate($form, &$form_state) {
   if (empty($form_state['values']['status'])) {
@@ -270,17 +260,15 @@ function uc_tax_report_params_form_validate($form, &$form_state) {
  * @see uc_tax_report_params_form_validate()
  */
 function uc_tax_report_params_form_submit($form, &$form_state) {
-  $timezone_offset = _uc_reports_timezone_offset();
-
   // Build the start and end dates from the form.
-  $start_date = gmmktime(0, 0, 0, $form_state['values']['start_date']['month'], $form_state['values']['start_date']['day'], $form_state['values']['start_date']['year']) - $timezone_offset;
-  $end_date = gmmktime(23, 59, 59, $form_state['values']['end_date']['month'], $form_state['values']['end_date']['day'], $form_state['values']['end_date']['year']) - $timezone_offset;
+  $start_date = mktime(0, 0, 0, $form_state['values']['start_date']['month'], $form_state['values']['start_date']['day'], $form_state['values']['start_date']['year']);
+  $end_date = mktime(23, 59, 59, $form_state['values']['end_date']['month'], $form_state['values']['end_date']['day'], $form_state['values']['end_date']['year']);
 
   $args = array(
     $start_date,
     $end_date,
-    drupal_urlencode(implode(',', array_keys($form_state['values']['status']))),
+    implode(',', array_keys($form_state['values']['status'])),
   );
 
-  $form_state['redirect'] = 'admin/store/reports/tax/'. implode('/', $args);
+  $form_state['redirect'] = 'admin/store/reports/tax/' . implode('/', $args);
 }

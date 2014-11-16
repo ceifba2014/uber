@@ -1,7 +1,17 @@
 <?php
 
 function oman_install() {
-  db_query("INSERT INTO {uc_countries} (country_id, country_name, country_iso_code_2, country_iso_code_3, version) VALUES ('512', 'Oman', 'OM', 'OMN', 1)");
+  // Make the entry in the country table.
+  // VALUES = Country ID, Country Name, 2-digit Code, 3-digit Code, File Version
+  db_insert('uc_countries')
+    ->fields(array(
+      'country_id' => 512,
+      'country_name' => 'Oman',
+      'country_iso_code_2' => 'OM',
+      'country_iso_code_3' => 'OMN',
+      'version' => 1,
+    ))
+    ->execute();
 
   $zones = array(
     array(512, 'BA', 'Al Batinah'),
@@ -14,10 +24,13 @@ function oman_install() {
     array(512, 'ZA', 'Az Zahirah'),
   );
 
+  $query = db_insert('uc_zones')->fields(array('zone_country_id', 'zone_code', 'zone_name'));
   foreach ($zones as $zone) {
-    db_query("INSERT INTO {uc_zones} (zone_country_id, zone_code, zone_name) VALUES (%d, '%s', '%s')", $zone);
+    $query->values($zone);
   }
+  $query->execute();
 
+  // Set address format
   uc_set_address_format(
     512,
     "!company\r\n".

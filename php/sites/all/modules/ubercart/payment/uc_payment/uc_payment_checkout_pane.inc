@@ -8,86 +8,94 @@
  * preview of the line items and order total.
  */
 
-function uc_checkout_pane_payment($op, &$order, $arg2) {
+function uc_checkout_pane_payment($op, &$order, $form = NULL, &$form_state = NULL) {
   switch ($op) {
     case 'view':
-      // Add the default payment message as a JS variable.
-      // Add URL paths as JS variables (be nice to i18n, allow URL rewrite).
-      drupal_add_js(array(
-        'defPaymentMsg' => addslashes(variable_get('uc_default_payment_msg', t('Continue with checkout to complete payment.'))),
-        'ucURL' => array(
-          'adminOrders' => url('admin/store/orders/'),
-          'checkoutPaymentDetails' => url('cart/checkout/payment_details/'),
-          'checkoutLineItems' => url('cart/checkout/line_items'),
-          'creditCardCVVInfo' => url('cart/checkout/credit/cvv_info'),
-        ),
-      ), 'setting');
+      $contents['#attached']['css'][] = drupal_get_path('module', 'uc_payment') . '/uc_payment.css';
 
       if (variable_get('uc_payment_show_order_total_preview', TRUE)) {
-        drupal_add_js('misc/progress.js');
-
-        $contents['current_total'] = array(
-          '#type' => 'hidden',
-          '#value' => $order->order_total > 0 ? $order->order_total : NULL,
-        );
-        $contents['shown_total'] = array(
-          '#value' => '<div style="padding: .5em 1em; margin-bottom: 1em; border: dashed 1px #bbb;" id="line-items-div"><em>'. t('Javascript must be enabled to view the order total preview.') .'</em></div>',
+        $contents['line_items'] = array(
+          '#theme' => 'uc_payment_totals',
+          '#order' => $order,
+          '#prefix' => '<div id="line-items-div">',
+          '#suffix' => '</div>',
           '#weight' => -20,
         );
-
-        // let the script know we need to show a progressbar
-        drupal_add_js(array('ucShowProgressBar' => TRUE), 'setting');
       }
 
-      $methods = _payment_method_list();
+      // Ensure that the form builder uses #default_value to determine which
+      // button should be selected after an ajax submission. This is
+      // necessary because the previously selected value may have become
+      // unavailable, which would result in an invalid selection.
+      unset($form_state['input']['panes']['payment']['payment_method']);
+
       $options = array();
-      $default = NULL;
+      foreach (_uc_payment_method_list() as $id => $method) {
+        $set = rules_config_load('uc_payment_method_' . $method['id']);
+        if ($set && !$set->execute($order)) {
+          continue;
+        }
 
-      foreach ($methods as $method) {
-        if ($method['checkout']) {
-          $options[$method['id']] = $method['title'];
+        if ($method['checkout'] && !isset($method['express'])) {
+          $options[$id] = $method['title'];
         }
       }
 
-      if (count($options)) {
-        if (isset($_POST['panes']) &&
-            isset($_POST['panes']['payment']['payment_method']) &&
-            in_array($_POST['panes']['payment']['payment_method'], array_keys($options))) {
-          $default = $_POST['panes']['payment']['payment_method'];
-        }
-        else {
-          $default = (count($options) == 1 || empty($order->payment_method)) ? key($options) : $order->payment_method;
-        }
-      }
+      drupal_alter('uc_payment_method_checkout', $options, $order);
 
-      if (count($options) > 1) {
+      $description = '';
+      if (!$options) {
+        $description = t('Checkout cannot be completed without any payment methods enabled. Please contact an administrator to resolve the issue.');
+        $options[''] = t('No payment methods available');
+      }
+      elseif (count($options) > 1) {
         $description = t('Select a payment method from the following options.');
       }
-      else {
-        $description = '';
+
+      if (!isset($options[$order->payment_method])) {
+        $order->payment_method = key($options);
       }
 
       $contents['payment_method'] = array(
         '#type' => 'radios',
         '#title' => t('Payment method'),
+        '#title_display' => 'invisible',
         '#options' => $options,
-        '#default_value' => $default,
-        '#disabled' => count($options) == 1 ? TRUE : FALSE,
+        '#default_value' => $order->payment_method,
+        '#disabled' => count($options) == 1,
         '#required' => TRUE,
-        '#attributes' => array('onclick' => "get_payment_details(Drupal.settings.ucURL.checkoutPaymentDetails + this.value);"),
-        '#theme' => 'uc_payment_method_select',
+        '#ajax' => array(
+          'callback' => 'uc_payment_checkout_payment_details',
+          'wrapper' => 'payment-details',
+          'progress' => array(
+            'type' => 'throbber',
+          ),
+        ),
       );
+
       $contents['details'] = array(
-        '#value' => '<div id="payment_details" class="solid-border display-none"></div>',
+        '#prefix' => '<div id="payment-details" class="clearfix payment-details-' . $order->payment_method . '">',
+        '#markup' => t('Continue with checkout to complete payment.'),
+        '#suffix' => '</div>',
       );
+
+      $func = _uc_payment_method_data($order->payment_method, 'callback');
+      if (function_exists($func) && $details = $func('cart-details', $order, $form, $form_state)) {
+        unset($contents['details']['#markup']);
+        $contents['details'] += $details;
+      }
 
       return array('description' => $description, 'contents' => $contents);
 
     case 'process':
-      $order->payment_method = $arg2['payment_method'];
-      $func = _payment_method_data($order->payment_method, 'callback');
+      if (empty($form_state['values']['panes']['payment']['payment_method'])) {
+        form_set_error('panes][payment][payment_method', t('You cannot check out without selecting a payment method.'));
+        return FALSE;
+      }
+      $order->payment_method = $form_state['values']['panes']['payment']['payment_method'];
+      $func = _uc_payment_method_data($order->payment_method, 'callback');
       if (function_exists($func)) {
-        $result = $func('cart-process', $order);
+        $result = $func('cart-process', $order, $form, $form_state);
         if ($result === FALSE) {
           return FALSE;
         }
@@ -95,41 +103,16 @@ function uc_checkout_pane_payment($op, &$order, $arg2) {
       return TRUE;
 
     case 'review':
-      $line_items = $order->line_items;
-      $items = _line_item_list();
-      foreach ($items as $item) {
-        if (isset($item['display_only']) && $item['display_only'] == TRUE) {
-          $result = $item['callback']('display', $order);
-          if (is_array($result)) {
-            foreach ($result as $line) {
-              $line_items[] = array(
-                'title' => $line['title'],
-                'amount' => $line['amount'],
-                'weight' => $item['weight']
-              );
-            }
-          }
-        }
-      }
-      usort($line_items, 'uc_weight_sort');
-
-      $context = array(
-        'revision' => 'themed',
-        'type' => 'line_item',
-        'subject' => array(
-          'order' => $order,
-        ),
-      );
+      $line_items = uc_order_load_line_items_display($order);
       foreach ($line_items as $line_item) {
-        $context['subject']['line_item'] = $line_item;
-        $review[] = array('title' => $line_item['title'], 'data' => uc_price($line_item['amount'], $context));
+        $review[] = array('title' => $line_item['title'], 'data' => theme('uc_price', array('price' => $line_item['amount'])));
       }
-      $review_data = _payment_method_data($order->payment_method, 'review');
+      $review_data = _uc_payment_method_data($order->payment_method, 'review');
       if (empty($review_data)) {
-        $review_data = _payment_method_data($order->payment_method, 'name');
+        $review_data = _uc_payment_method_data($order->payment_method, 'name');
       }
       $review[] = array('border' => 'top', 'title' => t('Paying by'), 'data' => $review_data);
-      $func = _payment_method_data($order->payment_method, 'callback');
+      $func = _uc_payment_method_data($order->payment_method, 'callback');
       if (function_exists($func)) {
         $result = $func('cart-review', $order);
         if (is_array($result)) {
@@ -149,19 +132,8 @@ function uc_checkout_pane_payment($op, &$order, $arg2) {
 }
 
 /**
- * We need a theme function for the radios element in case another module alters
- * the default or available payment methods... we need the JS to grab the right
- * default payment details.
+ * AJAX callback for payment method details on the checkout form.
  */
-function theme_uc_payment_method_select($form) {
-  if (empty($form['#options'])) {
-    drupal_set_message(t('Checkout cannot be completed without any payment methods enabled. Please contact an administrator to resolve the issue.'), 'error');
-    return;
-  }
-
-  // Perhaps instead this should be a normal JS function and we just print the
-  // default payment method to a JS variable or use a selector.  -RS
-  drupal_add_js(array('ucDefaultPayment' => $form['#default_value']), 'setting');
-
-  return drupal_render($form);
+function uc_payment_checkout_payment_details($form, $form_state) {
+  return $form['panes']['payment']['details'];
 }

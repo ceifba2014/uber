@@ -17,7 +17,6 @@ class uc_product_handler_field_price extends views_handler_field_numeric {
     $options = parent::option_definition();
 
     $options['format'] = array('default' => 'uc_price');
-    $options['revision'] = array('default' => 'themed');
 
     return $options;
   }
@@ -41,29 +40,10 @@ class uc_product_handler_field_price extends views_handler_field_numeric {
       '#weight' => 1,
     );
 
-    $form['revision'] = array(
-      '#title' => t('Revision'),
-      '#type' => 'select',
-      '#options' => array(
-        'original' => t('Original'),
-        'altered' => t('Altered'),
-        'formatted-original' => t('Formatted original'),
-        'formatted' => t('Formatted'),
-        'themed-original' => t('Themed original'),
-        'themed' => t('Themed'),
-      ),
-      '#default_value' => $options['revision'],
-      '#process' => array('views_process_dependency'),
-      '#dependency' => array('radio:options[format]' => array('uc_price')),
-      '#weight' => 1,
-    );
-
     // Change weight and dependency of the previous field on the parent numeric ones
     $weight = 2;
     foreach (array('set_precision', 'precision', 'decimal', 'separator', 'prefix', 'suffix') as $field) {
-      $form[$field]['#process'] = array('views_process_dependency');
-
-      if (is_array($form[$field]['#dependency'])) {
+      if (isset($form[$field]['#dependency'])) {
         $form[$field]['#dependency'] += array('radio:options[format]' => array('numeric'));
         $form[$field]['#dependency_count'] = count($form[$field]['#dependency']);
       }
@@ -84,30 +64,13 @@ class uc_product_handler_field_price extends views_handler_field_numeric {
     }
 
     if ($this->options['format'] == 'uc_price') {
-      if (is_null($values->{$this->field_alias})) {
+      $value = $this->get_value($values);
+
+      if (is_null($value) || ($value == 0 && $this->options['empty_zero'])) {
         return '';
       }
 
-      $product = node_load($values->{$this->aliases['nid']});
-      if ($product->{$this->real_field} == 0 && $this->options['empty_zero']) {
-        return '';
-      }
-
-      $context = array(
-        'revision' => $this->options['revision'],
-        'type' => 'product',
-        'class' => array(
-          'product',
-          $this->field,
-        ),
-        'field' => $this->real_field,
-        'subject' => array(
-          'node' => $product,
-        ),
-      );
-      $options = array('label' => FALSE);
-
-      return uc_price($product->{$this->real_field}, $context, $options);
+      return theme('uc_price', array('price' => $value));
     }
   }
 }

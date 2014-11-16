@@ -9,10 +9,19 @@
  * Implements hook_uninstall().
  */
 function uc_google_checkout_uninstall() {
-  drupal_uninstall_schema('uc_google_checkout');
+  db_update('uc_order_statuses')
+    ->fields(array(
+      'locked' => 0,
+    ))
+    ->condition(db_or()
+      ->condition('order_status_id', 'in_google_checkout')
+      ->condition('order_status_id', 'chargeable')
+    )
+    ->execute();
 
-  db_query("UPDATE {uc_order_statuses} SET locked = 0 WHERE order_status_id = 'in_google_checkout' OR order_status_id = 'chargeable'");
-  db_query("DELETE FROM {variable} WHERE name LIKE 'uc_google_checkout_%%'");
+  db_delete('variable')
+    ->condition('name', 'uc_google_checkout_%', 'LIKE')
+    ->execute();
 }
 
 /**
@@ -63,6 +72,15 @@ function uc_google_checkout_schema() {
       ),
     ),
     'primary key' => array('vid'),
+    'foreign keys' => array(
+      'uc_products' => array(
+        'table' => 'uc_products',
+        'columns' => array(
+          'nid' => 'nid',
+          'vid' => 'vid',
+        ),
+      )
+    ),
   );
 
   $schema['uc_gc_orders'] = array(
@@ -109,6 +127,12 @@ function uc_google_checkout_schema() {
       'gc_order_number' => array(array('gc_order_number', 20)),
     ),
     'primary key' => array('order_id'),
+    'foreign keys' => array(
+      'uc_orders' => array(
+        'table' => 'uc_orders',
+        'columns' => array('order_id' => 'order_id'),
+      ),
+    ),
   );
 
   $schema['uc_gc_taxes'] = array(
